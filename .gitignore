@@ -1,0 +1,28 @@
+# Archivos de configuración con datos sensibles
+config.json
+
+# Datos generados en tiempo de ejecución (específicos del usuario)
+repositories.json
+app_log.json
+release_history.json
+
+# Dependencias de Composer
+/vendor/
+
+# Logs
+*.log
+
+# Archivos temporales del sistema
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de backup
+*.bak
+*.backup

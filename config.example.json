@@ -1,0 +1,6 @@
+{
+    "TELEGRAM_BOT_TOKEN": "",
+    "TELEGRAM_CHAT_ID": "",
+    "REPOSITORIES_FILE": "repositories.json",
+    "GITHUB_TOKEN": ""
+}
