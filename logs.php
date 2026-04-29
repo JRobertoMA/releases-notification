@@ -27,6 +27,7 @@ $level_badges = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logs - Notificador de Releases</title>
+    <script>(function(){document.documentElement.setAttribute('data-bs-theme',localStorage.getItem('theme')||'light');})();</script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
@@ -34,9 +35,27 @@ $level_badges = [
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1>Logs de Ejecución</h1>
             <div>
+                <button id="btn-theme" class="btn btn-outline-secondary btn-sm me-2" title="Cambiar tema"></button>
                 <a href="history.php" class="btn btn-outline-primary me-2">Historial de Releases</a>
                 <a href="index.php" class="btn btn-secondary">Volver</a>
             </div>
+        </div>
+
+        <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
+            <span class="text-muted small">Filtrar por nivel:</span>
+            <div class="btn-group btn-group-sm" role="group" id="log-level-filter">
+                <input type="radio" class="btn-check" name="log-level" id="lf-all"     value=""        checked>
+                <label class="btn btn-outline-secondary" for="lf-all">Todos</label>
+                <input type="radio" class="btn-check" name="log-level" id="lf-info"    value="info">
+                <label class="btn btn-outline-secondary" for="lf-info">Info</label>
+                <input type="radio" class="btn-check" name="log-level" id="lf-success" value="success">
+                <label class="btn btn-outline-success"   for="lf-success">Success</label>
+                <input type="radio" class="btn-check" name="log-level" id="lf-error"   value="error">
+                <label class="btn btn-outline-danger"    for="lf-error">Error</label>
+                <input type="radio" class="btn-check" name="log-level" id="lf-warning" value="warning">
+                <label class="btn btn-outline-warning"   for="lf-warning">Warning</label>
+            </div>
+            <span id="log-count" class="text-muted small"></span>
         </div>
 
         <?php if (empty($logs)): ?>
@@ -53,9 +72,9 @@ $level_badges = [
                                 <th>Mensaje</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="logs-tbody">
                             <?php foreach ($logs as $entry): ?>
-                                <tr>
+                                <tr data-level="<?php echo htmlspecialchars($entry['level'] ?? 'info'); ?>">
                                     <td class="text-muted small"><?php echo htmlspecialchars($entry['timestamp']); ?></td>
                                     <td>
                                         <?php
@@ -78,5 +97,36 @@ $level_badges = [
         </footer>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function () {
+    var fg   = document.getElementById('log-level-filter');
+    var tb   = document.getElementById('logs-tbody');
+    var span = document.getElementById('log-count');
+    if (!fg || !tb) return;
+    fg.addEventListener('change', function () {
+        var level = fg.querySelector('input:checked').value;
+        var rows  = tb.querySelectorAll('tr[data-level]');
+        var vis   = 0;
+        rows.forEach(function (r) {
+            var show = !level || r.dataset.level === level;
+            r.style.display = show ? '' : 'none';
+            if (show) vis++;
+        });
+        span.textContent = level ? vis + ' de ' + rows.length + ' entradas' : '';
+    });
+})();
+(function () {
+    var btn  = document.getElementById('btn-theme');
+    var html = document.documentElement;
+    function applyIcon() { btn.textContent = html.getAttribute('data-bs-theme') === 'dark' ? '☀️' : '🌙'; }
+    applyIcon();
+    btn.addEventListener('click', function () {
+        var next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-bs-theme', next);
+        localStorage.setItem('theme', next);
+        applyIcon();
+    });
+})();
+</script>
 </body>
 </html>

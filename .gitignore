@@ -7,6 +7,7 @@ app_log.json
 release_history.json
 
 # Dependencias de Composer
+composer.lock
 /vendor/
 
 # Logs

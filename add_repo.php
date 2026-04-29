@@ -36,11 +36,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // --- Add new repo ---
+    $tags_input = trim($_POST['repo_tags'] ?? '');
+    $repo_tags  = $tags_input
+        ? array_values(array_filter(array_map('trim', explode(',', $tags_input))))
+        : [];
+    $tag_pattern = trim($_POST['tag_pattern'] ?? '');
+
     $new_repo = [
-        'name' => $repo_name,
-        'type' => $repo_type,
-        'last_seen_release' => null
+        'name'              => $repo_name,
+        'type'              => $repo_type,
+        'tags'              => $repo_tags,
+        'last_seen_release' => null,
     ];
+    if ($repo_type === 'docker' && $tag_pattern !== '') {
+        $new_repo['tag_pattern'] = $tag_pattern;
+    }
 
     $repos[] = $new_repo;
 

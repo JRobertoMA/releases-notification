@@ -33,9 +33,17 @@ $script = escapeshellarg(__DIR__ . '/check_releases.php');
 $output = [];
 $code   = 0;
 
-exec(escapeshellarg($php) . ' ' . $script . ' 2>&1', $output, $code);
+$id_arg = isset($_GET['id']) && ctype_digit($_GET['id'])
+    ? ' ' . escapeshellarg('--id=' . $_GET['id'])
+    : '';
 
-$summary = implode(' | ', array_filter(array_slice($output, -4)));
+exec(escapeshellarg($php) . ' ' . $script . $id_arg . ' 2>&1', $output, $code);
+
+// Drop PHP startup warnings (missing extensions, etc.) — keep only our [level] log lines
+$log_lines = array_values(array_filter($output, function ($line) {
+    return isset($line[0]) && $line[0] === '[';
+}));
+$summary = implode(' | ', array_filter(array_slice($log_lines, -4)));
 if ($code === 0) {
     $_SESSION['message']      = 'Verificación completada. ' . htmlspecialchars($summary);
     $_SESSION['message_type'] = 'success';
