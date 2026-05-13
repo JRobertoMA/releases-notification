@@ -15,9 +15,9 @@ if (file_exists($history_file)) {
 }
 
 $type_badges = [
-    'github' => 'bg-dark',
-    'gitlab' => 'bg-warning text-dark',
-    'docker' => 'bg-info text-dark',
+    'github' => 'text-bg-secondary',
+    'gitlab' => 'text-bg-warning',
+    'docker' => 'text-bg-info',
 ];
 ?>
 <!DOCTYPE html>
@@ -46,7 +46,7 @@ $type_badges = [
                 <input type="radio" class="btn-check" name="hist-type" id="hf-all"    value=""       checked>
                 <label class="btn btn-outline-secondary" for="hf-all">Todos</label>
                 <input type="radio" class="btn-check" name="hist-type" id="hf-github" value="github">
-                <label class="btn btn-outline-dark"      for="hf-github">GitHub</label>
+                <label class="btn btn-outline-secondary"  for="hf-github">GitHub</label>
                 <input type="radio" class="btn-check" name="hist-type" id="hf-gitlab" value="gitlab">
                 <label class="btn btn-outline-warning"   for="hf-gitlab">GitLab</label>
                 <input type="radio" class="btn-check" name="hist-type" id="hf-docker" value="docker">
@@ -62,7 +62,7 @@ $type_badges = [
             <div class="card">
                 <div class="card-body p-0">
                     <table class="table table-striped table-hover mb-0">
-                        <thead class="table-dark">
+                        <thead class="table-secondary">
                             <tr>
                                 <th style="width:170px">Fecha</th>
                                 <th>Repositorio</th>

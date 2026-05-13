@@ -124,7 +124,7 @@ $status_badge = [
 
         <div class="row g-3 mb-4">
             <div class="col-6 col-sm-3">
-                <div class="card text-center border-0 bg-light">
+                <div class="card text-center border-0 bg-body-secondary">
                     <div class="card-body py-3">
                         <div class="fs-2 fw-bold"><?php echo $stats['total']; ?></div>
                         <div class="text-muted small">Total</div>
@@ -132,25 +132,25 @@ $status_badge = [
                 </div>
             </div>
             <div class="col-6 col-sm-3">
-                <div class="card text-center border-0" style="background:#d1e7dd">
+                <div class="card text-center border-0 bg-success-subtle">
                     <div class="card-body py-3">
-                        <div class="fs-2 fw-bold text-success"><?php echo $stats['ok']; ?></div>
+                        <div class="fs-2 fw-bold text-success-emphasis"><?php echo $stats['ok']; ?></div>
                         <div class="text-muted small">Al día</div>
                     </div>
                 </div>
             </div>
             <div class="col-6 col-sm-3">
-                <div class="card text-center border-0" style="background:#cfe2ff">
+                <div class="card text-center border-0 bg-primary-subtle">
                     <div class="card-body py-3">
-                        <div class="fs-2 fw-bold text-primary"><?php echo $stats['new']; ?></div>
+                        <div class="fs-2 fw-bold text-primary-emphasis"><?php echo $stats['new']; ?></div>
                         <div class="text-muted small">Nuevo</div>
                     </div>
                 </div>
             </div>
             <div class="col-6 col-sm-3">
-                <div class="card text-center border-0" style="background:#f8d7da">
+                <div class="card text-center border-0 bg-danger-subtle">
                     <div class="card-body py-3">
-                        <div class="fs-2 fw-bold text-danger"><?php echo $stats['error']; ?></div>
+                        <div class="fs-2 fw-bold text-danger-emphasis"><?php echo $stats['error']; ?></div>
                         <div class="text-muted small">Con error</div>
                     </div>
                 </div>
@@ -233,9 +233,9 @@ $status_badge = [
                                             $row_outdated = true;
                                         } elseif (!empty($repo['my_updated_at']) && !empty($repo['last_release_date'])) {
                                             // Mismo tag (latest, stable…) → comparar fechas
-                                            // last_release_date es ISO 8601, my_updated_at es YYYY-MM-DD
-                                            // La comparación léxica funciona porque ambos empiezan por YYYY-MM-DD
-                                            $row_outdated = $repo['last_release_date'] > $repo['my_updated_at'];
+                                            // Truncar a YYYY-MM-DD: evita que "2026-04-24T15:30:00Z" > "2026-04-24"
+                                            // (comparación léxica daría true aunque sean el mismo día)
+                                            $row_outdated = substr($repo['last_release_date'], 0, 10) > $repo['my_updated_at'];
                                         }
                                     }
                                 ?>
@@ -247,7 +247,28 @@ $status_badge = [
                                     data-outdated="<?php echo $row_outdated ? '1' : '0'; ?>"
                                 >
                                     <td>
+                                        <?php
+                                            $repo_url = null;
+                                            switch ($repo['type'] ?? 'github') {
+                                                case 'github':
+                                                    $repo_url = 'https://github.com/' . $repo['name'];
+                                                    break;
+                                                case 'gitlab':
+                                                    $repo_url = 'https://gitlab.com/' . $repo['name'];
+                                                    break;
+                                                case 'docker':
+                                                    $dn = $repo['name'];
+                                                    $repo_url = (strpos($dn, '/') === false || substr($dn, 0, 2) === '_/')
+                                                        ? 'https://hub.docker.com/_/' . ltrim(str_replace('_/', '', $dn), '/')
+                                                        : 'https://hub.docker.com/r/' . $dn;
+                                                    break;
+                                            }
+                                        ?>
                                         <?php echo htmlspecialchars($repo['name']); ?>
+                                        <?php if ($repo_url): ?>
+                                            <a href="<?php echo htmlspecialchars($repo_url); ?>" target="_blank" rel="noopener"
+                                               class="text-muted ms-1" style="font-size:.8em" title="Abrir repositorio">↗</a>
+                                        <?php endif; ?>
                                         <?php foreach ($repo['tags'] ?? [] as $tag): ?>
                                             <span class="badge bg-secondary me-1 fw-normal"><?php echo htmlspecialchars($tag); ?></span>
                                         <?php endforeach; ?>
@@ -255,11 +276,11 @@ $status_badge = [
                                     <td>
                                         <?php
                                             $repo_type = $repo['type'] ?? 'github';
-                                            $badge_class = 'bg-secondary';
+                                            $badge_class = 'text-bg-secondary';
                                             switch ($repo_type) {
-                                                case 'github': $badge_class = 'bg-dark'; break;
-                                                case 'gitlab': $badge_class = 'bg-warning text-dark'; break;
-                                                case 'docker': $badge_class = 'bg-info text-dark'; break;
+                                                case 'github': $badge_class = 'text-bg-secondary'; break;
+                                                case 'gitlab': $badge_class = 'text-bg-warning';   break;
+                                                case 'docker': $badge_class = 'text-bg-info';       break;
                                             }
                                         ?>
                                         <span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($repo_type); ?></span>

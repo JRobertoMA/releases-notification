@@ -128,11 +128,30 @@ switch ($repo['type']) {
         </div>
 
         <div class="card">
-            <div class="card-header">
-                <strong><?php echo htmlspecialchars($repo['name']); ?></strong>
-                <span class="badge bg-<?php echo $is_docker ? 'info text-dark' : ($repo['type'] === 'gitlab' ? 'warning text-dark' : 'dark'); ?> ms-2">
-                    <?php echo htmlspecialchars($repo['type']); ?>
-                </span>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <strong><?php echo htmlspecialchars($repo['name']); ?></strong>
+                    <span class="badge bg-<?php echo $is_docker ? 'info text-dark' : ($repo['type'] === 'gitlab' ? 'warning text-dark' : 'dark'); ?> ms-2">
+                        <?php echo htmlspecialchars($repo['type']); ?>
+                    </span>
+                </div>
+                <?php
+                    $repo_link = null;
+                    switch ($repo['type']) {
+                        case 'github': $repo_link = 'https://github.com/' . $repo['name']; break;
+                        case 'gitlab': $repo_link = 'https://gitlab.com/' . $repo['name']; break;
+                        case 'docker':
+                            $dn = $repo['name'];
+                            $repo_link = (strpos($dn, '/') === false || substr($dn, 0, 2) === '_/')
+                                ? 'https://hub.docker.com/_/' . ltrim(str_replace('_/', '', $dn), '/')
+                                : 'https://hub.docker.com/r/' . $dn;
+                            break;
+                    }
+                ?>
+                <?php if ($repo_link): ?>
+                    <a href="<?php echo htmlspecialchars($repo_link); ?>" target="_blank" rel="noopener"
+                       class="btn btn-outline-secondary btn-sm">Abrir repositorio ↗</a>
+                <?php endif; ?>
             </div>
             <div class="card-body">
                 <form action="edit_repo.php?id=<?php echo $id; ?>" method="POST">

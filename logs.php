@@ -65,7 +65,7 @@ $level_badges = [
             <div class="card">
                 <div class="card-body p-0">
                     <table class="table table-sm table-hover mb-0">
-                        <thead class="table-dark">
+                        <thead class="table-secondary">
                             <tr>
                                 <th style="width:170px">Timestamp</th>
                                 <th style="width:90px">Nivel</th>
