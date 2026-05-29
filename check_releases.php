@@ -264,7 +264,8 @@ foreach ($repos as $index => &$repo) {
         $tag_changed    = $release_tag !== null && $repo['last_seen_release'] !== $release_tag;
         $digest_changed = $release_digest !== null
             && !empty($repo['last_seen_release'])          // skip on first run
-            && ($repo['last_seen_digest'] ?? null) !== $release_digest;
+            && !empty($repo['last_seen_digest'])           // skip if digest was cleared (edit_repo)
+            && $repo['last_seen_digest'] !== $release_digest;
 
         if ($release_tag === null) {
             $check_status = 'error';
