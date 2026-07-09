@@ -102,7 +102,7 @@ $status_badge = [
                             <div class="col-md-5">
                                 <label class="form-label">Patrón de tag</label>
                                 <input type="text" class="form-control font-monospace" id="tag_pattern" name="tag_pattern" placeholder="#.#-apache, alpine, latest, #.#-fpm">
-                                <div class="form-text"><code>#</code> actúa como comodín de versión: <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, etc.</div>
+                                <div class="form-text"><code>#</code> actúa como comodín de versión (un segmento numérico cada uno): <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, etc., pero no <code>8.5.3-apache</code> (usa <code>#.#.#-apache</code> para 3 segmentos).</div>
                             </div>
                             <div class="col-md-3 d-flex align-items-end">
                                 <button type="button" id="btn-load-variants" class="btn btn-outline-info w-100">Cargar variantes</button>

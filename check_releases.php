@@ -170,13 +170,13 @@ function get_latest_docker_tag(Client $client, $repo_name, $tag_pattern = '') {
         $latest_updated_str = null;
 
         // Build glob regex once if pattern contains '#' (version wildcard).
-        // '#' expands to [\d.]+ so it matches any dot-separated version number:
-        //   #.#-apache  →  /^[\d.]+\.[\d.]+-apache$/
-        //   matches: 8.5-apache, 8.5.3-apache, 9.0-apache — not 8.5-fpm
+        // Each '#' expands to \d+ — exactly one numeric segment per wildcard:
+        //   #.#-apache  →  /^\d+\.\d+-apache$/
+        //   matches: 8.5-apache, 9.0-apache — not 8.5.3-apache (needs #.#.#-apache) or 8.5-fpm
         $pattern_regex = null;
         if (!empty($tag_pattern) && strpos($tag_pattern, '#') !== false) {
             $parts = explode('#', $tag_pattern);
-            $pattern_regex = '/^' . implode('[\d.]+', array_map(
+            $pattern_regex = '/^' . implode('\d+', array_map(
                 function ($p) { return preg_quote($p, '/'); },
                 $parts
             )) . '$/';
@@ -193,7 +193,7 @@ function get_latest_docker_tag(Client $client, $repo_name, $tag_pattern = '') {
             // Pattern matching (no pre-release filter — pattern is the sole control)
             if (!empty($tag_pattern)) {
                 if ($pattern_regex !== null) {
-                    // '#' glob: e.g. '#.#-apache' → /^\d+\.\d+\-apache$/
+                    // '#' glob: e.g. '#.#-apache' → /^\d+\.\d+-apache$/
                     if (!preg_match($pattern_regex, $tag_name)) continue;
                 } else {
                     // Plain substring match (backward-compatible)
@@ -209,6 +209,11 @@ function get_latest_docker_tag(Client $client, $repo_name, $tag_pattern = '') {
             }
         }
         if ($latest_tag === null) {
+            // A pattern was set but no fetched tag matched it — this is expected
+            // when no new version has been published yet, not an API failure.
+            if (!empty($tag_pattern)) {
+                return ['tag' => null, 'digest' => null, 'released_at' => null, 'reason' => 'no_match'];
+            }
             return null;
         }
         return [
@@ -267,9 +272,18 @@ foreach ($repos as $index => &$repo) {
             && !empty($repo['last_seen_digest'])           // skip if digest was cleared (edit_repo)
             && $repo['last_seen_digest'] !== $release_digest;
 
+        $no_pattern_match = $repo_type === 'docker'
+            && is_array($latest_release_data)
+            && ($latest_release_data['reason'] ?? null) === 'no_match';
+
         if ($release_tag === null) {
-            $check_status = 'error';
-            log_entry('error', "No se pudo obtener la versión de {$repo_name}");
+            if ($no_pattern_match) {
+                $check_status = 'ok';
+                log_entry('info', "Sin tags que coincidan con el patrón de {$repo_name} por ahora.");
+            } else {
+                $check_status = 'error';
+                log_entry('error', "No se pudo obtener la versión de {$repo_name}");
+            }
         } elseif ($tag_changed || $digest_changed) {
             $check_status = 'new';
             $log_detail = $tag_changed

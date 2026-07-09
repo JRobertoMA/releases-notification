@@ -169,7 +169,7 @@ switch ($repo['type']) {
                                value="<?php echo htmlspecialchars($tag_pattern); ?>"
                                placeholder="#.#-apache, alpine, latest, #.#-fpm">
                         <div class="form-text">
-                            <code>#</code> es comodín de versión: <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, <code>9.0-apache</code>, etc.<br>
+                            <code>#</code> es comodín de versión (un segmento numérico cada uno): <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, <code>9.0-apache</code>, etc., pero no <code>8.5.3-apache</code> (usa <code>#.#.#-apache</code> para 3 segmentos).<br>
                             Sin <code>#</code> busca por subcadena. <code>latest</code> rastrea cambios por digest aunque el nombre no cambie.
                         </div>
                     </div>

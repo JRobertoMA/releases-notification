@@ -96,11 +96,14 @@ El campo **Patrón de tag** controla qué variante de imagen se monitorea:
 
 | Patrón | Semántica | Encuentra |
 |---|---|---|
-| `#.#-apache` | `#` = versión (dígitos y puntos) | `8.5-apache`, `8.5.3-apache`, `9.0-apache` |
-| `#.#-fpm` | | `8.5-fpm`, `8.5.3-fpm`, `9.1-fpm` |
+| `#.#-apache` | cada `#` = un segmento numérico | `8.5-apache`, `9.0-apache` (no `8.5.3-apache`) |
+| `#.#.#-apache` | 3 comodines = 3 segmentos | `8.5.3-apache`, `9.0.1-apache` |
+| `#.#-fpm` | cada `#` = un segmento numérico | `8.5-fpm`, `9.1-fpm` (no `8.5.3-fpm`) |
 | `alpine` | subcadena | cualquier tag que contenga `alpine` |
 | `latest` | subcadena + digest | rastrea cambios de contenido aunque el nombre no cambie |
 | *(vacío)* | sin filtro | el tag más reciente (excluye `latest`) |
+
+La cantidad de `#` debe coincidir exactamente con la cantidad de segmentos numéricos del tag — usa tantos comodines como segmentos esperes.
 
 Al agregar o editar un repositorio Docker, el botón **Cargar variantes** descarga hasta 100 tags reales de Docker Hub para que elijas el patrón con un clic.
 
