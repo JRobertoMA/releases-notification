@@ -3,5 +3,6 @@
     "TELEGRAM_CHAT_ID": "",
     "GITHUB_TOKEN": "",
     "CRON_SECRET": "",
-    "REPOSITORIES_FILE": "repositories.json"
+    "REPOSITORIES_FILE": "repositories.json",
+    "THEME": "auto"
 }

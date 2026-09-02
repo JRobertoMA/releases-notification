@@ -114,15 +114,26 @@ switch ($repo['type']) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Editar Repositorio - Notificador</title>
-    <script>(function(){document.documentElement.setAttribute('data-bs-theme',localStorage.getItem('theme')||'light');})();</script>
+    <script>
+    (function(){
+        var configured = '<?php echo $config['THEME'] ?? 'auto'; ?>';
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function resolve() { return configured === 'auto' ? (mq.matches ? 'dark' : 'light') : configured; }
+        document.documentElement.setAttribute('data-bs-theme', resolve());
+        if (configured === 'auto') {
+            mq.addEventListener('change', function () {
+                document.documentElement.setAttribute('data-bs-theme', resolve());
+            });
+        }
+    })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="container mt-5" style="max-width:700px">
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <h1 class="h3">Editar Repositorio</h1>
             <div class="d-flex gap-2">
-                <button id="btn-theme" class="btn btn-outline-secondary btn-sm" title="Cambiar tema"></button>
                 <a href="index.php" class="btn btn-secondary">Volver</a>
             </div>
         </div>
@@ -167,10 +178,12 @@ switch ($repo['type']) {
                         <label class="form-label">Patrón de tag</label>
                         <input type="text" class="form-control font-monospace" id="tag_pattern" name="tag_pattern"
                                value="<?php echo htmlspecialchars($tag_pattern); ?>"
-                               placeholder="#.#-apache, alpine, latest, #.#-fpm">
+                               placeholder="#.#-apache, latest, stable*, *-slim">
                         <div class="form-text">
-                            <code>#</code> es comodín de versión (un segmento numérico cada uno): <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, <code>9.0-apache</code>, etc., pero no <code>8.5.3-apache</code> (usa <code>#.#.#-apache</code> para 3 segmentos).<br>
-                            Sin <code>#</code> busca por subcadena. <code>latest</code> rastrea cambios por digest aunque el nombre no cambie.
+                            Sin comodines, el patrón debe ser <strong>igual al tag completo</strong> (ej. <code>latest</code> solo encuentra el tag <code>latest</code>).<br>
+                            <code>#</code> = un segmento numérico: <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, <code>9.0-apache</code>, etc., pero no <code>8.5.3-apache</code> (usa <code>#.#.#-apache</code> para 3 segmentos).<br>
+                            <code>*</code> = cualquier texto: <code>stable*</code> encuentra <code>stable-fpm-alpine</code>; <code>*-slim</code> encuentra <code>lts-trixie-slim</code>.<br>
+                            <code>latest</code> (u otro tag exacto) rastrea cambios por digest aunque el nombre no cambie.
                         </div>
                     </div>
 
@@ -248,20 +261,6 @@ switch ($repo['type']) {
         </footer>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-    (function () {
-        var btn  = document.getElementById('btn-theme');
-        var html = document.documentElement;
-        function applyIcon() { btn.textContent = html.getAttribute('data-bs-theme') === 'dark' ? '☀️' : '🌙'; }
-        applyIcon();
-        btn.addEventListener('click', function () {
-            var next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-            html.setAttribute('data-bs-theme', next);
-            localStorage.setItem('theme', next);
-            applyIcon();
-        });
-    })();
-    </script>
     <?php if ($is_docker): ?>
     <script>
     (function () {

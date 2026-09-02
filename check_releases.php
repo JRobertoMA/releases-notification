@@ -169,17 +169,26 @@ function get_latest_docker_tag(Client $client, $repo_name, $tag_pattern = '') {
         $latest_date        = 0;
         $latest_updated_str = null;
 
-        // Build glob regex once if pattern contains '#' (version wildcard).
-        // Each '#' expands to \d+ — exactly one numeric segment per wildcard:
-        //   #.#-apache  →  /^\d+\.\d+-apache$/
-        //   matches: 8.5-apache, 9.0-apache — not 8.5.3-apache (needs #.#.#-apache) or 8.5-fpm
+        // Build a glob regex once if the pattern contains '#' or '*'.
+        // '#' expands to \d+ (exactly one numeric segment), '*' expands to .*
+        // (any text, including empty), everything else is taken literally:
+        //   #.#-apache  →  /^\d+\.\d+-apache$/         matches 8.5-apache, 9.0-apache
+        //   stable*     →  /^stable.*$/                matches stable, stable-fpm-alpine
+        //   *-slim      →  /^.*-slim$/                 matches lts-trixie-slim
         $pattern_regex = null;
-        if (!empty($tag_pattern) && strpos($tag_pattern, '#') !== false) {
-            $parts = explode('#', $tag_pattern);
-            $pattern_regex = '/^' . implode('\d+', array_map(
-                function ($p) { return preg_quote($p, '/'); },
-                $parts
-            )) . '$/';
+        if (!empty($tag_pattern) && (strpos($tag_pattern, '#') !== false || strpos($tag_pattern, '*') !== false)) {
+            $tokens = preg_split('/([#*])/', $tag_pattern, -1, PREG_SPLIT_DELIM_CAPTURE);
+            $regex_body = '';
+            foreach ($tokens as $token) {
+                if ($token === '#') {
+                    $regex_body .= '\d+';
+                } elseif ($token === '*') {
+                    $regex_body .= '.*';
+                } else {
+                    $regex_body .= preg_quote($token, '/');
+                }
+            }
+            $pattern_regex = '/^' . $regex_body . '$/';
         }
 
         foreach ($data['results'] as $tag) {
@@ -193,11 +202,12 @@ function get_latest_docker_tag(Client $client, $repo_name, $tag_pattern = '') {
             // Pattern matching (no pre-release filter — pattern is the sole control)
             if (!empty($tag_pattern)) {
                 if ($pattern_regex !== null) {
-                    // '#' glob: e.g. '#.#-apache' → /^\d+\.\d+-apache$/
+                    // '#'/'*' glob: e.g. '#.#-apache' → /^\d+\.\d+-apache$/
                     if (!preg_match($pattern_regex, $tag_name)) continue;
                 } else {
-                    // Plain substring match (backward-compatible)
-                    if (strpos($tag_name, $tag_pattern) === false) continue;
+                    // No wildcard characters in the pattern → exact match only.
+                    // (Use '*' explicitly for prefix/suffix/substring matching.)
+                    if ($tag_name !== $tag_pattern) continue;
                 }
             }
             $tag_date = strtotime($tag['last_updated']);

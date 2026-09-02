@@ -18,13 +18,39 @@ function get_repositories($file) {
     return json_decode($json, true) ?? [];
 }
 
-$repos = get_repositories($repositories_file);
+function is_repo_outdated(array $repo): bool {
+    if (empty($repo['my_version']) || empty($repo['last_seen_release'])) {
+        return false;
+    }
+    if ($repo['my_version'] !== $repo['last_seen_release']) {
+        // Tags distintos → desactualizado
+        return true;
+    }
+    if (!empty($repo['my_updated_at']) && !empty($repo['last_release_date'])) {
+        // Mismo tag (latest, stable…) → comparar fechas
+        // Truncar a YYYY-MM-DD: evita que "2026-04-24T15:30:00Z" > "2026-04-24"
+        // (comparación léxica daría true aunque sean el mismo día)
+        return substr($repo['last_release_date'], 0, 10) > $repo['my_updated_at'];
+    }
+    return false;
+}
 
-$stats = ['total' => count($repos), 'ok' => 0, 'new' => 0, 'error' => 0];
+function repo_priority(array $r): int {
+    if (($r['check_status'] ?? '') === 'error') return 0;
+    if (($r['check_status'] ?? '') === 'new')   return 1;
+    if (is_repo_outdated($r))                   return 2;
+    return 3;
+}
+
+$repos = get_repositories($repositories_file);
+uasort($repos, fn($a, $b) => repo_priority($a) <=> repo_priority($b));
+
+$stats = ['total' => count($repos), 'ok' => 0, 'new' => 0, 'error' => 0, 'outdated' => 0];
 $all_tags = [];
 foreach ($repos as $r) {
     $cs = $r['check_status'] ?? null;
     if (isset($stats[$cs])) $stats[$cs]++;
+    if (is_repo_outdated($r)) $stats['outdated']++;
     foreach ($r['tags'] ?? [] as $tag) {
         $all_tags[$tag] = true;
     }
@@ -43,25 +69,41 @@ $status_badge = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Notificador de Releases</title>
-    <script>(function(){document.documentElement.setAttribute('data-bs-theme',localStorage.getItem('theme')||'light');})();</script>
+    <script>
+    (function(){
+        var configured = '<?php echo $config['THEME'] ?? 'auto'; ?>';
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function resolve() { return configured === 'auto' ? (mq.matches ? 'dark' : 'light') : configured; }
+        document.documentElement.setAttribute('data-bs-theme', resolve());
+        if (configured === 'auto') {
+            mq.addEventListener('change', function () {
+                document.documentElement.setAttribute('data-bs-theme', resolve());
+            });
+        }
+    })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="container mt-5">
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <h1>Notificador de Releases</h1>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
+                <a href="dashboard.php" class="btn btn-outline-info">Dashboard</a>
                 <a href="history.php" class="btn btn-outline-primary">Historial</a>
                 <a href="logs.php" class="btn btn-outline-secondary">Logs</a>
                 <a href="settings.php" class="btn btn-secondary">Configuración</a>
-                <button id="btn-theme" class="btn btn-outline-secondary btn-sm" title="Cambiar tema"></button>
             </div>
         </div>
 
         <?php if (isset($_SESSION['message'])): ?>
-            <div class="alert alert-<?php echo $_SESSION['message_type']; ?> alert-dismissible fade show" role="alert">
-                <?php echo $_SESSION['message']; ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1080">
+                <div id="flash-toast" class="toast align-items-center text-bg-<?php echo $_SESSION['message_type']; ?> border-0" role="alert" data-bs-delay="5000">
+                    <div class="d-flex">
+                        <div class="toast-body"><?php echo $_SESSION['message']; ?></div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                    </div>
+                </div>
             </div>
             <?php unset($_SESSION['message']); unset($_SESSION['message_type']); ?>
         <?php endif; ?>
@@ -101,8 +143,12 @@ $status_badge = [
                         <div class="row">
                             <div class="col-md-5">
                                 <label class="form-label">Patrón de tag</label>
-                                <input type="text" class="form-control font-monospace" id="tag_pattern" name="tag_pattern" placeholder="#.#-apache, alpine, latest, #.#-fpm">
-                                <div class="form-text"><code>#</code> actúa como comodín de versión (un segmento numérico cada uno): <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, etc., pero no <code>8.5.3-apache</code> (usa <code>#.#.#-apache</code> para 3 segmentos).</div>
+                                <input type="text" class="form-control font-monospace" id="tag_pattern" name="tag_pattern" placeholder="#.#-apache, latest, stable*, *-slim">
+                                <div class="form-text">
+                                    Sin comodines, el patrón debe ser <strong>igual al tag completo</strong> (ej. <code>latest</code> solo encuentra el tag <code>latest</code>).
+                                    <code>#</code> = un segmento numérico: <code>#.#-apache</code> encuentra <code>8.5-apache</code>, <code>8.6-apache</code>, pero no <code>8.5.3-apache</code> (usa <code>#.#.#-apache</code> para 3 segmentos).
+                                    <code>*</code> = cualquier texto: <code>stable*</code> encuentra <code>stable-fpm-alpine</code>; <code>*-slim</code> encuentra <code>lts-trixie-slim</code>.
+                                </div>
                             </div>
                             <div class="col-md-3 d-flex align-items-end">
                                 <button type="button" id="btn-load-variants" class="btn btn-outline-info w-100">Cargar variantes</button>
@@ -155,6 +201,14 @@ $status_badge = [
                     </div>
                 </div>
             </div>
+            <div class="col-6 col-sm-3">
+                <div class="card text-center border-0 bg-warning-subtle">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-warning-emphasis"><?php echo $stats['outdated']; ?></div>
+                        <div class="text-muted small">Desactualizados</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="row g-2 mb-3">
@@ -201,12 +255,19 @@ $status_badge = [
                 <span>Repositorios Monitoreados
                     <span id="filter-count" class="text-muted fw-normal small ms-2"></span>
                 </span>
-                <a href="run_check.php" class="btn btn-sm btn-success"
-                   onclick="return confirm('¿Ejecutar verificación manual ahora? Puede tardar unos segundos.');">
+                <button type="button" class="btn btn-sm btn-success"
+                        data-bs-toggle="modal" data-bs-target="#confirmModal"
+                        data-url="run_check.php"
+                        data-title="Verificar todos los repositorios"
+                        data-body="¿Ejecutar verificación manual ahora? Puede tardar unos segundos."
+                        data-variant="success"
+                        data-loading="1"
+                        data-loading-text="Verificando todos los repositorios... esto puede tardar unos segundos.">
                     Verificar ahora
-                </a>
+                </button>
             </div>
             <div class="card-body p-0">
+              <div class="table-responsive">
                 <table class="table table-striped table-hover mb-0">
                     <thead>
                         <tr>
@@ -225,20 +286,7 @@ $status_badge = [
                             </tr>
                         <?php else: ?>
                             <?php foreach ($repos as $index => $repo): ?>
-                                <?php
-                                    $row_outdated = false;
-                                    if (!empty($repo['my_version']) && !empty($repo['last_seen_release'])) {
-                                        if ($repo['my_version'] !== $repo['last_seen_release']) {
-                                            // Tags distintos → desactualizado
-                                            $row_outdated = true;
-                                        } elseif (!empty($repo['my_updated_at']) && !empty($repo['last_release_date'])) {
-                                            // Mismo tag (latest, stable…) → comparar fechas
-                                            // Truncar a YYYY-MM-DD: evita que "2026-04-24T15:30:00Z" > "2026-04-24"
-                                            // (comparación léxica daría true aunque sean el mismo día)
-                                            $row_outdated = substr($repo['last_release_date'], 0, 10) > $repo['my_updated_at'];
-                                        }
-                                    }
-                                ?>
+                                <?php $row_outdated = is_repo_outdated($repo); ?>
                                 <tr
                                     data-name="<?php echo strtolower(htmlspecialchars($repo['name'])); ?>"
                                     data-type="<?php echo htmlspecialchars($repo['type'] ?? 'github'); ?>"
@@ -264,7 +312,9 @@ $status_badge = [
                                                     break;
                                             }
                                         ?>
-                                        <?php echo htmlspecialchars($repo['name']); ?>
+                                        <a href="history.php?repo=<?php echo urlencode($repo['name']); ?>" class="link-body-emphasis text-decoration-none">
+                                            <?php echo htmlspecialchars($repo['name']); ?>
+                                        </a>
                                         <?php if ($repo_url): ?>
                                             <a href="<?php echo htmlspecialchars($repo_url); ?>" target="_blank" rel="noopener"
                                                class="text-muted ms-1" style="font-size:.8em" title="Abrir repositorio">↗</a>
@@ -328,17 +378,35 @@ $status_badge = [
                                     </td>
                                     <td>
                                         <div class="d-flex gap-1 flex-wrap">
-                                            <a href="run_check.php?id=<?php echo $index; ?>"
-                                               class="btn btn-outline-success btn-sm"
-                                               onclick="return confirm('¿Verificar solo <?php echo htmlspecialchars(addslashes($repo['name'])); ?>?');">
+                                            <button type="button" class="btn btn-outline-success btn-sm"
+                                                    data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                                    data-url="run_check.php?id=<?php echo $index; ?>"
+                                                    data-title="Verificar repositorio"
+                                                    data-body="¿Verificar solo &laquo;<?php echo htmlspecialchars(addslashes($repo['name'])); ?>&raquo;?"
+                                                    data-variant="success"
+                                                    data-loading="1"
+                                                    data-loading-text="Verificando <?php echo htmlspecialchars(addslashes($repo['name'])); ?>... esto puede tardar unos segundos.">
                                                 Verificar
-                                            </a>
+                                            </button>
                                             <a href="edit_repo.php?id=<?php echo $index; ?>" class="btn btn-outline-secondary btn-sm">Editar</a>
-                                            <a href="delete_repo.php?id=<?php echo $index; ?>"
-                                               class="btn btn-danger btn-sm"
-                                               onclick="return confirm('¿Estás seguro de que quieres eliminar este repositorio?');">
+                                            <?php if ($row_outdated): ?>
+                                                <button type="button" class="btn btn-outline-warning btn-sm"
+                                                        data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                                        data-url="sync_version.php?id=<?php echo $index; ?>"
+                                                        data-title="Sincronizar versión instalada"
+                                                        data-body="¿Marcar &laquo;<?php echo htmlspecialchars(addslashes($repo['name'])); ?>&raquo; como actualizado a <?php echo htmlspecialchars(addslashes($latest ?? '')); ?>?"
+                                                        data-variant="warning">
+                                                    Sincronizar
+                                                </button>
+                                            <?php endif; ?>
+                                            <button type="button" class="btn btn-danger btn-sm"
+                                                    data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                                    data-url="delete_repo.php?id=<?php echo $index; ?>"
+                                                    data-title="Eliminar repositorio"
+                                                    data-body="¿Eliminar &laquo;<?php echo htmlspecialchars(addslashes($repo['name'])); ?>&raquo;? Esta acción no se puede deshacer."
+                                                    data-variant="danger">
                                                 Eliminar
-                                            </a>
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -351,6 +419,7 @@ $status_badge = [
                         <?php endif; ?>
                     </tbody>
                 </table>
+              </div>
             </div>
         </div>
 
@@ -358,6 +427,27 @@ $status_badge = [
             <p>JRobertoMA | <a href="https://github.com/JRobertoMA">Github</a></p>
         </footer>
     </div>
+
+    <div class="modal fade" id="confirmModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmModalTitle">Confirmar</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="confirmModalBody"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <a href="#" id="confirmModalAction" class="btn btn-danger">Confirmar</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="loading-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:2000; flex-direction:column; align-items:center; justify-content:center; color:#fff;">
+        <div class="spinner-border mb-3" role="status"></div>
+        <div id="loading-overlay-text"></div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     (function () {
@@ -481,15 +571,33 @@ $status_badge = [
     </script>
     <script>
     (function () {
-        var btn  = document.getElementById('btn-theme');
-        var html = document.documentElement;
-        function applyIcon() { btn.textContent = html.getAttribute('data-bs-theme') === 'dark' ? '☀️' : '🌙'; }
-        applyIcon();
-        btn.addEventListener('click', function () {
-            var next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-            html.setAttribute('data-bs-theme', next);
-            localStorage.setItem('theme', next);
-            applyIcon();
+        var flashToastEl = document.getElementById('flash-toast');
+        if (flashToastEl) new bootstrap.Toast(flashToastEl).show();
+    })();
+    (function () {
+        var modalEl   = document.getElementById('confirmModal');
+        var titleEl   = document.getElementById('confirmModalTitle');
+        var bodyEl    = document.getElementById('confirmModalBody');
+        var actionEl  = document.getElementById('confirmModalAction');
+        var overlay   = document.getElementById('loading-overlay');
+        var overlayTx = document.getElementById('loading-overlay-text');
+        if (!modalEl) return;
+
+        modalEl.addEventListener('show.bs.modal', function (event) {
+            var btn = event.relatedTarget;
+            titleEl.textContent          = btn.dataset.title || 'Confirmar';
+            bodyEl.innerHTML             = btn.dataset.body || '';
+            actionEl.href                = btn.dataset.url;
+            actionEl.className           = 'btn btn-' + (btn.dataset.variant || 'primary');
+            actionEl.dataset.loading     = btn.dataset.loading || '0';
+            actionEl.dataset.loadingText = btn.dataset.loadingText || '';
+        });
+
+        actionEl.addEventListener('click', function () {
+            if (actionEl.dataset.loading === '1' && overlay) {
+                overlayTx.textContent = actionEl.dataset.loadingText;
+                overlay.style.display = 'flex';
+            }
         });
     })();
     </script>

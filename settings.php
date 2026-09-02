@@ -16,6 +16,7 @@ $config += [
     'TELEGRAM_CHAT_ID'   => '',
     'GITHUB_TOKEN'       => '',
     'REPOSITORIES_FILE'  => 'repositories.json',
+    'THEME'              => 'auto',
 ];
 
 // Auto-generate CRON_SECRET if missing.
@@ -33,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $config['TELEGRAM_CHAT_ID'] = trim($_POST['chat_id']);
     $config['GITHUB_TOKEN'] = trim($_POST['github_token']);
     $config['CRON_SECRET']  = trim($_POST['cron_secret']);
+    $config['THEME']        = trim($_POST['theme'] ?? 'auto');
     if (!isset($config['REPOSITORIES_FILE'])) {
         $config['REPOSITORIES_FILE'] = 'repositories.json';
     }
@@ -55,20 +57,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuración - Notificador</title>
-    <script>(function(){document.documentElement.setAttribute('data-bs-theme',localStorage.getItem('theme')||'light');})();</script>
+    <script>
+    (function(){
+        var configured = '<?php echo $config['THEME'] ?? 'auto'; ?>';
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function resolve() { return configured === 'auto' ? (mq.matches ? 'dark' : 'light') : configured; }
+        document.documentElement.setAttribute('data-bs-theme', resolve());
+        if (configured === 'auto') {
+            mq.addEventListener('change', function () {
+                document.documentElement.setAttribute('data-bs-theme', resolve());
+            });
+        }
+    })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="container mt-5">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1 class="mb-0">Configuración</h1>
-            <button id="btn-theme" class="btn btn-outline-secondary btn-sm" title="Cambiar tema"></button>
         </div>
 
         <?php if (isset($_SESSION['message'])): ?>
-            <div class="alert alert-<?php echo $_SESSION['message_type']; ?> alert-dismissible fade show" role="alert">
-                <?php echo $_SESSION['message']; ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1080">
+                <div id="flash-toast" class="toast align-items-center text-bg-<?php echo $_SESSION['message_type']; ?> border-0" role="alert" data-bs-delay="5000">
+                    <div class="d-flex">
+                        <div class="toast-body"><?php echo $_SESSION['message']; ?></div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                    </div>
+                </div>
             </div>
             <?php unset($_SESSION['message']); unset($_SESSION['message_type']); ?>
         <?php endif; ?>
@@ -118,6 +135,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <span id="copy-feedback" class="text-success small" style="display:none">¡Copiado!</span>
                         </div>
                     </div>
+                    <hr>
+                    <h6 class="text-muted">Apariencia</h6>
+                    <div class="mb-3">
+                        <label for="theme" class="form-label">Tema</label>
+                        <select class="form-select" id="theme" name="theme" style="max-width:300px">
+                            <?php $current_theme = $config['THEME'] ?? 'auto'; ?>
+                            <option value="auto" <?php echo $current_theme === 'auto' ? 'selected' : ''; ?>>Automático (según el sistema)</option>
+                            <option value="light" <?php echo $current_theme === 'light' ? 'selected' : ''; ?>>Claro</option>
+                            <option value="dark" <?php echo $current_theme === 'dark' ? 'selected' : ''; ?>>Oscuro</option>
+                        </select>
+                        <div class="form-text">"Automático" sigue la preferencia de tema de tu sistema operativo/navegador.</div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Guardar Configuración</button>
                     <a href="index.php" class="btn btn-secondary">Volver a la página principal</a>
                 </form>
@@ -131,18 +160,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 (function () {
-    // Dark mode toggle
-    var btn  = document.getElementById('btn-theme');
-    var html = document.documentElement;
-    function applyIcon() { btn.textContent = html.getAttribute('data-bs-theme') === 'dark' ? '☀️' : '🌙'; }
-    applyIcon();
-    btn.addEventListener('click', function () {
-        var next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-bs-theme', next);
-        localStorage.setItem('theme', next);
-        applyIcon();
-    });
-
     // Regenerar secret
     document.getElementById('btn-regen-secret').addEventListener('click', function () {
         var arr = new Uint8Array(16);
@@ -163,6 +180,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setTimeout(function () { fb.style.display = 'none'; }, 2000);
         });
     });
+
+    var flashToastEl = document.getElementById('flash-toast');
+    if (flashToastEl) new bootstrap.Toast(flashToastEl).show();
 })();
 </script>
 </body>
