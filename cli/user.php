@@ -22,6 +22,10 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+// Todo lo que cree PHP (config.json, data/, sesiones, JSON de datos) nace solo para el propietario: 600/700.
+// En IONOS el checkout queda legible por «otros» y el servidor es compartido (SECURITY_AUDIT.md, v1.0.1).
+umask(0077);
+
 $base = dirname(__DIR__);
 require_once $base . '/vendor/autoload.php';
 

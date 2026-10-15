@@ -49,7 +49,7 @@ final class JsonFile
             throw new RuntimeException("No se puede abrir {$path} para escritura");
         }
         if ($created) {
-            self::giveToDirOwner($path);
+            self::claimNew($path);
         }
         try {
             flock($h, LOCK_EX);
@@ -87,7 +87,7 @@ final class JsonFile
         self::ensureDir(dirname($path));
         $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
         file_put_contents($tmp, json_encode($data, self::FLAGS | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-        self::giveToDirOwner($tmp);
+        self::claimNew($tmp);
         rename($tmp, $path);
     }
 
@@ -97,10 +97,10 @@ final class JsonFile
         if (is_dir($dir)) {
             return;
         }
-        if (!@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        if (!@mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new RuntimeException("No se puede crear {$dir}");
         }
-        self::giveToDirOwner($dir);
+        self::claimNew($dir);
     }
 
     /** Abre (creándolo si hace falta) un fichero de bloqueo. Si es de root y no se puede escribir, basta con leer. */
@@ -113,9 +113,21 @@ final class JsonFile
             throw new RuntimeException("No se puede abrir el bloqueo {$path}");
         }
         if (!$existed) {
-            self::giveToDirOwner($path);
+            self::claimNew($path);
         }
         return $h;
+    }
+
+    /**
+     * Para todo lo que crea esta clase: permisos privados explícitos (600 fichero / 700 carpeta) y, si quien
+     * escribe es root, se cede al dueño del directorio.
+     * El chmod es explícito porque umask(0077) no basta: con ACL por defecto en la carpeta (el entrypoint del
+     * Docker local las pone) Linux ignora la umask y el fichero nacería 664.
+     */
+    public static function claimNew(string $path): void
+    {
+        @chmod($path, is_dir($path) ? 0700 : 0600);
+        self::giveToDirOwner($path);
     }
 
     private static function giveToDirOwner(string $path): void

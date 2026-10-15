@@ -65,7 +65,11 @@ final class RepoStore
             $repos  = array_values($repos);
             if (json_encode($repos) !== $before) {
                 // En el sitio, no temporal+rename: conserva el propietario del fichero (ver JsonFile).
+                $created = !is_file($this->file);
                 file_put_contents($this->file, json_encode($repos, JSON_PRETTY_PRINT));
+                if ($created) {
+                    JsonFile::claimNew($this->file);
+                }
             }
             return $result;
         });

@@ -15,6 +15,10 @@ declare(strict_types=1);
  * Orden (importa): configuración → zona horaria → HTTPS y cabeceras → cookies → sesión → autenticación.
  */
 
+// Todo lo que cree PHP (config.json, data/, sesiones, JSON de datos) nace solo para el propietario: 600/700.
+// En IONOS el checkout queda legible por «otros» y el servidor es compartido (SECURITY_AUDIT.md, v1.0.1).
+umask(0077);
+
 define('BASE_DIR', dirname(__DIR__));
 
 require_once BASE_DIR . '/vendor/autoload.php';
