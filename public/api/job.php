@@ -11,7 +11,7 @@ require __DIR__ . '/../../includes/bootstrap.php';
 
 use App\Jobs;
 
-$jobs = Jobs::fromBase(BASE_DIR);
+$jobs = new Jobs();
 
 if (!empty($_GET['current'])) {
     json_out($jobs->running());

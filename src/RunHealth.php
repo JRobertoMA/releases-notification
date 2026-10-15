@@ -7,35 +7,40 @@ namespace App;
 /**
  * ¿Sigue corriendo el cron? (PROPUESTA_UX §1.5)
  *
- * check_releases.php escribe data/last_run.json al terminar cada verificación completa (cron, web o HTTP).
- * Hasta que exista, se deduce de app_log.json: el último «Verificación completada» precedido de
+ * check_releases.php guarda `last_run` en app_state al terminar cada verificación completa. Si aún no existe
+ * (p. ej. justo tras importar), se deduce de app_log: el último «Verificación completada» precedido de
  * «Iniciando verificación (todos los repos)».
  */
 final class RunHealth
 {
-    public static function lastFullRun(string $baseDir): ?array
+    public static function lastFullRun(): ?array
     {
-        $last = JsonFile::read($baseDir . '/data/last_run.json', null);
+        $last = (new KeyValue('app_state'))->get('last_run');
         if (is_array($last) && !empty($last['finished_at'])) {
             return $last;
         }
 
-        $logs = JsonFile::read($baseDir . '/app_log.json', []);
-        for ($i = count($logs) - 1; $i >= 0; $i--) {
-            if (strpos($logs[$i]['message'] ?? '', 'Verificación completada') !== 0) {
-                continue;
-            }
-            for ($j = $i - 1; $j >= 0; $j--) {
-                $msg = $logs[$j]['message'] ?? '';
-                if (strpos($msg, 'Iniciando verificación') === 0) {
-                    if (strpos($msg, 'todos los repos') !== false) {
-                        return ['finished_at' => $logs[$i]['timestamp'], 'source' => 'log'];
-                    }
-                    break;
-                }
+        // Las verificaciones de un solo repo también escriben «Verificación completada»: hay que partir de los
+        // inicios de verificaciones COMPLETAS y buscar el primer «completada» posterior (el último puede estar
+        // aún en curso, por eso se miran varios).
+        $starts = Database::all(
+            "SELECT id FROM app_log WHERE message LIKE 'Iniciando verificación (todos los repos)%' ORDER BY id DESC LIMIT 5"
+        );
+        foreach ($starts as $start) {
+            $done = Database::value(
+                "SELECT created_at FROM app_log WHERE id > ? AND message LIKE 'Verificación completada%' ORDER BY id LIMIT 1",
+                [$start['id']]
+            );
+            if ($done !== null) {
+                return ['finished_at' => $done, 'source' => 'log'];
             }
         }
         return null;
+    }
+
+    public static function record(array $run): void
+    {
+        (new KeyValue('app_state'))->set('last_run', $run);
     }
 
     /**

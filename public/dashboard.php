@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 
-use App\JsonFile;
+use App\EventLog;
 use App\Repo;
 
 $repos   = repo_store()->all();
-$history = JsonFile::read(BASE_DIR . '/release_history.json', []);
 
 // Distribución por tipo (mismos colores que los badges, Repo::TYPE_COLOR)
 $type_counts = array_fill_keys(array_keys(Repo::TYPES), 0);
@@ -29,24 +28,10 @@ foreach ($repos as $r) {
 arsort($tag_counts);
 $tag_counts = array_slice($tag_counts, 0, 10, true);
 
-// Ranking de repos más activos
-$repo_activity = [];
-foreach ($history as $entry) {
-    $name = $entry['repo'] ?? '—';
-    $repo_activity[$name] = ($repo_activity[$name] ?? 0) + 1;
-}
-arsort($repo_activity);
-$repo_activity = array_slice($repo_activity, 0, 10, true);
-
-// Actividad global por mes
-$monthly_counts = [];
-foreach ($history as $entry) {
-    $month = substr($entry['timestamp'] ?? '', 0, 7);
-    if ($month !== '') {
-        $monthly_counts[$month] = ($monthly_counts[$month] ?? 0) + 1;
-    }
-}
-ksort($monthly_counts);
+// Ranking de repos más activos y actividad por mes, agregados en SQL
+$repo_activity  = EventLog::topRepos(10);
+$monthly_counts = EventLog::monthlyCounts();
+$history        = $monthly_counts;   // solo para saber si hay datos
 
 $page_title = 'Dashboard';
 $active     = 'dashboard';

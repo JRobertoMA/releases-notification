@@ -1,5 +1,8 @@
-# Archivos de configuración con datos sensibles
+# Archivos de configuración con datos sensibles (secretos y credenciales: nunca en git)
+.env
 config.json
+config.json.imported
+*.imported
 
 # Datos generados en tiempo de ejecución (específicos del usuario)
 repositories.json

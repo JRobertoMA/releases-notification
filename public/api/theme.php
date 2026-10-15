@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-/** POST api/theme.php  theme=auto|light|dark — guarda solo THEME en config.json (botón de la navbar). */
+/** POST api/theme.php  theme=auto|light|dark — guarda el tema (ajuste THEME de la tabla settings). */
 
 require __DIR__ . '/../../includes/bootstrap.php';
 
-use App\JsonFile;
+use App\AppConfig;
 
 require_post_csrf();
 
@@ -15,11 +15,6 @@ if (!in_array($theme, ['auto', 'light', 'dark'], true)) {
     json_out(null, 422, 'Tema no válido');
 }
 
-// En el sitio y con bloqueo: conserva el propietario de config.json
-JsonFile::modify($config_file, function ($cfg) use ($theme) {
-    $cfg          = is_array($cfg) ? $cfg : [];
-    $cfg['THEME'] = $theme;
-    return $cfg;
-});
+AppConfig::setSettings(['THEME' => $theme]);
 
 json_out(['theme' => $theme]);

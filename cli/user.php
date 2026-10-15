@@ -29,18 +29,30 @@ umask(0077);
 $base = dirname(__DIR__);
 require_once $base . '/vendor/autoload.php';
 
+use App\AppConfig;
+use App\Database;
+use App\Env;
 use App\Users;
 
-$config = is_file($base . '/config.json') ? (json_decode((string) file_get_contents($base . '/config.json'), true) ?? []) : [];
-$tz     = (string) ($config['APP_TIMEZONE'] ?? '');
-date_default_timezone_set(in_array($tz, timezone_identifiers_list(), true) ? $tz : 'America/Mexico_City');
+Env::load($base);
+date_default_timezone_set(AppConfig::timezone());
+
+try {
+    if (!Database::isConfigured() || !Database::hasSchema()) {
+        fwrite(STDERR, "Error: configura la base de datos en .env y ejecuta antes cli/migrate.php\n");
+        exit(1);
+    }
+} catch (PDOException $e) {
+    fwrite(STDERR, 'Error: no se pudo conectar a la base de datos: ' . $e->getMessage() . "\n");
+    exit(1);
+}
 
 $args      = array_slice($argv, 1);
 $fromStdin = in_array('--password-stdin', $args, true);
 $args      = array_values(array_filter($args, fn ($a) => $a !== '--password-stdin'));
 [$command, $username] = [$args[0] ?? '', $args[1] ?? ''];
 
-$users = Users::fromBase($base);
+$users = new Users();
 
 function fail(string $message): never
 {

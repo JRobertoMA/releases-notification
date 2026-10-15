@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 
-use App\JsonFile;
+use App\EventLog;
 
-$logs = array_reverse(JsonFile::read(BASE_DIR . '/app_log.json', []));   // más recientes primero
+$logs = EventLog::recentLogs(1000);   // más recientes primero
 
 $levels = [
     'info'    => ['Info',    'text-bg-secondary'],

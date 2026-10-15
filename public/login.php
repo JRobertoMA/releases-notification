@@ -7,8 +7,7 @@ declare(strict_types=1);
  * cualquiera que encuentre el subdominio cree el primer administrador (SECURITY_AUDIT.md §2).
  */
 
-$public_page          = true;
-$allow_missing_config = true;
+$public_page = true;
 require __DIR__ . '/../includes/bootstrap.php';
 
 use App\LoginThrottle;
@@ -27,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$no_users) {
     require_post_csrf();
     $username = trim((string) ($_POST['username'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
-    $throttle = LoginThrottle::fromBase(BASE_DIR);
+    $throttle = new LoginThrottle();
     $ip       = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     $wait     = $throttle->blockedFor($ip, $username);
 
@@ -39,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$no_users) {
     } else {
         $throttle->clear($ip, $username);
         auth()->login($user, !empty($_POST['remember']));
-        redirect(is_file($config_file) ? $next : 'settings.php');
+        redirect($next);
     }
 }
 

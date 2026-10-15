@@ -11,7 +11,7 @@ $active     ??= '';
 $head_extra ??= '';
 $minimal    ??= false;
 
-$theme = $config['THEME'] ?? 'auto';
+$theme = (string) cfg('THEME');
 if (!in_array($theme, ['auto', 'light', 'dark'], true)) {
     $theme = 'auto';
 }

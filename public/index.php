@@ -28,12 +28,18 @@ foreach ($repos as $r) {
 ksort($all_tags, SORT_NATURAL | SORT_FLAG_CASE);
 
 // Salud del cron (PROPUESTA_UX §1.5)
-$interval = max(1, (int) ($config['CHECK_INTERVAL_HOURS'] ?? 6));
-$last_run = RunHealth::lastFullRun(BASE_DIR);
+$interval = max(1, (int) cfg('CHECK_INTERVAL_HOURS'));
+
+// Sin token (.env) o sin chat (Configuración) no se puede avisar: se dice en la portada
+$missing_telegram = array_filter([
+    (string) cfg('TELEGRAM_BOT_TOKEN') === '' ? 'falta <code>TELEGRAM_BOT_TOKEN</code> en el <code>.env</code>' : null,
+    (string) cfg('TELEGRAM_CHAT_ID') === '' ? 'falta elegir el chat en Configuración' : null,
+]);
+$last_run = RunHealth::lastFullRun();
 $health   = RunHealth::status($last_run, $interval);
 
 // Verificación en segundo plano: la recién lanzada (?job=) o la que esté corriendo (cron incluido)
-$jobs = Jobs::fromBase(BASE_DIR);
+$jobs = new Jobs();
 $job  = null;
 if (!empty($_GET['job'])) {
     $job = $jobs->get((string) $_GET['job']);
@@ -85,6 +91,16 @@ $stat_cards = [
         </button>
     </div>
 </div>
+
+<?php if ($missing_telegram !== []): ?>
+    <div class="alert alert-warning d-flex gap-2 align-items-start" role="alert">
+        <?= icon('exclamation-triangle-fill', 'mt-1') ?>
+        <div>
+            <strong>Los avisos de Telegram no están configurados:</strong> <?= implode('; ', $missing_telegram) ?>.
+            <a href="settings.php" class="alert-link">Ir a Configuración</a>
+        </div>
+    </div>
+<?php endif; ?>
 
 <div id="job-progress" class="card card-body mb-3 run-status" hidden>
     <div class="job-text small" aria-live="polite">Verificación en curso…</div>

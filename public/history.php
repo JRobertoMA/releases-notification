@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 
-use App\JsonFile;
+use App\EventLog;
 use App\Repo;
 
-$history = array_reverse(JsonFile::read(BASE_DIR . '/release_history.json', []));   // más recientes primero
-
 $filter_repo = trim((string) ($_GET['repo'] ?? ''));
-if ($filter_repo !== '') {
-    $history = array_values(array_filter($history, fn ($e) => ($e['repo'] ?? '') === $filter_repo));
-}
+// Más recientes primero. Global: los últimos 2000; de un repo: todo su historial.
+$history = EventLog::recentReleases(2000, $filter_repo !== '' ? $filter_repo : null);
 
 // Ficha del repo (solo con ?repo=): el historial guarda solo el nombre, así que se busca por nombre
 $matched_repo = null;

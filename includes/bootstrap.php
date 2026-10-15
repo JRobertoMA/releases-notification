@@ -8,14 +8,14 @@ declare(strict_types=1);
  *
  * includes/ queda fuera de public/ y además tiene su .htaccess con Require all denied.
  * Antes de incluirlo, una página puede definir:
- *   $allow_missing_config = true   no redirigir a settings.php si falta config.json (settings.php, login.php)
  *   $public_page = true            no exigir sesión (solo login.php)
  * Todo lo demás, páginas y api/, exige sesión iniciada (ver final del fichero).
  *
- * Orden (importa): configuración → zona horaria → HTTPS y cabeceras → cookies → sesión → autenticación.
+ * Orden (importa): .env → zona horaria → HTTPS y cabeceras → cookies → sesión → base de datos → autenticación.
+ * Configuración: secretos y entorno en .env (solo lectura), ajustes web en la tabla `settings` (App\AppConfig).
  */
 
-// Todo lo que cree PHP (config.json, data/, sesiones, JSON de datos) nace solo para el propietario: 600/700.
+// Todo lo que cree PHP (data/, sesiones) nace solo para el propietario: 600/700.
 // En IONOS el checkout queda legible por «otros» y el servidor es compartido (SECURITY_AUDIT.md, v1.0.1).
 umask(0077);
 
@@ -23,27 +23,21 @@ define('BASE_DIR', dirname(__DIR__));
 
 require_once BASE_DIR . '/vendor/autoload.php';
 
+use App\AppConfig;
 use App\Auth;
-use App\JsonFile;
+use App\Database;
+use App\Env;
+use App\Files;
+use App\OciRegistry;
 use App\Repo;
 use App\RepoStore;
 use App\Users;
 
-$config_file = BASE_DIR . '/config.json';
-$config      = is_file($config_file) ? (json_decode((string) file_get_contents($config_file), true) ?? []) : [];
+Env::load(BASE_DIR);
 
-// Zona horaria de la app, no la del servidor (IONOS: America/New_York). El cron usa la misma (check_releases.php).
-date_default_timezone_set(app_timezone($config));
-
-// Registros OCI a los que se permite consultar (lista blanca contra SSRF, SECURITY_AUDIT.md §10)
-App\OciRegistry::setAllowedHosts(is_array($config['OCI_REGISTRIES'] ?? null) ? $config['OCI_REGISTRIES'] : null);
-
-/** Zona horaria configurada (APP_TIMEZONE), validada; por defecto America/Mexico_City. */
-function app_timezone(array $config): string
-{
-    $tz = (string) ($config['APP_TIMEZONE'] ?? '');
-    return in_array($tz, timezone_identifiers_list(), true) ? $tz : 'America/Mexico_City';
-}
+// Zona horaria de la app (APP_TIMEZONE del .env), no la del servidor (IONOS: America/New_York).
+// El cron usa la misma (check_releases.php).
+date_default_timezone_set(AppConfig::timezone());
 
 function is_https(): bool
 {
@@ -53,12 +47,13 @@ function is_https(): bool
 
 /**
  * HTTPS obligatorio salvo en local: localhost, IPs privadas, nombres sin punto o *.local.
- * FORCE_HTTPS=false en config.json lo desactiva; así funciona en IONOS aunque aún no exista config.json.
+ * FORCE_HTTPS=false/true en el .env lo fija; sin él, automático (funciona en IONOS desde el primer acceso).
  */
-function must_force_https(array $config): bool
+function must_force_https(): bool
 {
-    if (array_key_exists('FORCE_HTTPS', $config)) {
-        return (bool) $config['FORCE_HTTPS'];
+    $forced = AppConfig::forceHttps();
+    if ($forced !== null) {
+        return $forced;
     }
     $host = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? '')));
     $host = trim($host, '[]');
@@ -71,7 +66,7 @@ function must_force_https(array $config): bool
     return true;
 }
 
-if (must_force_https($config) && !is_https()) {
+if (must_force_https() && !is_https()) {
     header('Location: https://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? '/'), true, 301);
     exit;
 }
@@ -108,7 +103,7 @@ define('APP_PATH', detect_app_path());
 // (gc_maxlifetime=1440, gc_probability=0), por debajo de las 2 h de Auth::IDLE (SECURITY_AUDIT.md §15).
 $session_dir = BASE_DIR . '/data/sessions';
 if (!is_dir($session_dir)) {
-    JsonFile::ensureDir($session_dir);
+    Files::ensureDir($session_dir);
     @chmod($session_dir, 0700);
 }
 session_save_path($session_dir);
@@ -127,25 +122,60 @@ session_set_cookie_params([
 ]);
 session_start();
 
-if (!is_file($config_file) && empty($allow_missing_config)) {
-    header('Location: settings.php');
+/** Página (o JSON en api/) de «falta configurar»: sin .env, sin base de datos o sin tablas. Nunca muestra secretos. */
+function setup_error(string $title, string $detail): never
+{
+    http_response_code(503);
+    if (str_contains($_SERVER['SCRIPT_NAME'] ?? '', '/api/')) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['data' => null, 'error' => $title, 'status' => 503], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+        . '<title>Configuración pendiente · Notificador</title>'
+        . '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>'
+        . '<body class="bg-body-tertiary"><main class="container py-5" style="max-width:720px"><div class="card shadow-sm"><div class="card-body p-4">'
+        . '<h1 class="h4">' . htmlspecialchars($title) . '</h1><p class="mb-0">' . $detail . '</p>'
+        . '</div></div></main></body></html>';
     exit;
 }
+
+// Base de datos (credenciales en .env). Sin ella no hay nada que mostrar.
+if (!Env::exists() || !Database::isConfigured()) {
+    setup_error('Falta configurar la base de datos',
+        'Crea el fichero <code>.env</code> a partir de <code>.env.example</code> (en la carpeta de la app, fuera de <code>public/</code>) con '
+        . '<code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code> y <code>DB_PASS</code>, y ejecuta <code>cli/migrate.php</code>. Ver el README.');
+}
+try {
+    if (!Database::hasSchema()) {
+        setup_error('Faltan las tablas de la base de datos',
+            'Ejecuta <code>cli/migrate.php</code> con el PHP de consola (en IONOS: <code>/usr/bin/php8.4-cli cli/migrate.php</code>).');
+    }
+} catch (PDOException $e) {
+    error_log('Notificador: no se pudo conectar a la base de datos: ' . $e->getMessage());
+    setup_error('No se puede conectar a la base de datos',
+        'Revisa <code>DB_HOST</code>, <code>DB_NAME</code>, <code>DB_USER</code> y <code>DB_PASS</code> en el <code>.env</code>. El detalle está en el log de errores del servidor.');
+}
+
+// Registros OCI a los que se permite consultar (lista blanca contra SSRF, SECURITY_AUDIT.md §10)
+OciRegistry::setAllowedHosts((array) AppConfig::get('OCI_REGISTRIES'));
 
 function h(mixed $value): string
 {
     return htmlspecialchars((string) ($value ?? ''), ENT_QUOTES, 'UTF-8');
 }
 
-function app_config(): array
+/** Configuración: secretos/entorno del .env o ajustes web de la tabla `settings` (ver App\AppConfig). */
+function cfg(string $key): mixed
 {
-    global $config;
-    return $config;
+    return AppConfig::get($key);
 }
 
 function repo_store(): RepoStore
 {
-    return RepoStore::fromConfig(app_config(), BASE_DIR);
+    static $store = null;
+    return $store ??= new RepoStore();
 }
 
 // --- CSRF ---------------------------------------------------------------------------------------
@@ -291,7 +321,7 @@ function php_cli_binary(): ?string
     }
     $resolved   = true;
     $candidates = [
-        trim((string) (app_config()['PHP_CLI'] ?? '')),
+        trim((string) cfg('PHP_CLI')),
         '/usr/bin/php8.5-cli', '/usr/bin/php8.4-cli', '/usr/bin/php8.3-cli',
         PHP_BINDIR . '/php', '/usr/local/bin/php', '/usr/bin/php',
     ];
@@ -320,7 +350,7 @@ function icon(string $name, string $class = ''): string
 function users(): Users
 {
     static $users = null;
-    return $users ??= Users::fromBase(BASE_DIR);
+    return $users ??= new Users();
 }
 
 function auth(): Auth

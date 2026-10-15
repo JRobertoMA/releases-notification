@@ -10,7 +10,9 @@ declare(strict_types=1);
  *   action=test    sendMessage de prueba al chat indicado
  *   action=github  límite restante del token y si puede leer ghcr.io (read:packages)
  *
- * Usa los valores del formulario aunque aún no estén guardados; si llegan vacíos, los de config.json.
+ * Los tokens salen SOLO del .env (la web no puede leerlos ni cambiarlos; lo que llegue en la petición se ignora).
+ * El chat de prueba sí puede venir del formulario (aún sin guardar); si no, el guardado en Configuración.
+ * action=php comprueba el PHP_CLI del .env (o el autodetectado si está vacío).
  * Cuando exista el backend de bot compartido (PROPUESTA_BOT_TELEGRAM.md), «chats» debe leer su registro:
  * con un webhook o un poller activos getUpdates deja de estar disponible.
  */
@@ -23,13 +25,13 @@ use GuzzleHttp\Exception\GuzzleException;
 require_post_csrf();
 
 $action   = (string) ($_POST['action'] ?? '');
-$botToken = trim((string) ($_POST['bot_token'] ?? '')) ?: (string) ($config['TELEGRAM_BOT_TOKEN'] ?? '');
+$botToken = (string) cfg('TELEGRAM_BOT_TOKEN');
 $client   = new Client(['timeout' => 15, 'http_errors' => false]);
 
 function telegram(Client $client, string $token, string $method, array $params = []): array
 {
     if (!preg_match('/^\d+:[\w-]{30,}$/', $token)) {
-        json_out(null, 422, 'El token del bot no tiene el formato esperado (123456:ABC…).');
+        json_out(null, 422, 'Falta TELEGRAM_BOT_TOKEN en el .env o no tiene el formato esperado (123456:ABC…).');
     }
     try {
         $r = $client->post("https://api.telegram.org/bot{$token}/{$method}", ['json' => $params]);
@@ -79,7 +81,7 @@ switch ($action) {
         json_out(array_values($chats));
 
     case 'test':
-        $chatId = trim((string) ($_POST['chat_id'] ?? '')) ?: (string) ($config['TELEGRAM_CHAT_ID'] ?? '');
+        $chatId = trim((string) ($_POST['chat_id'] ?? '')) ?: (string) cfg('TELEGRAM_CHAT_ID');
         if (!preg_match('/^-?\d+$|^@\w{5,}$/', $chatId)) {
             json_out(null, 422, 'Indica un ID de chat válido (número, o @canal).');
         }
@@ -91,9 +93,9 @@ switch ($action) {
         json_out(['sent' => true]);
 
     case 'github':
-        $token = trim((string) ($_POST['github_token'] ?? '')) ?: (string) ($config['GITHUB_TOKEN'] ?? '');
+        $token = (string) cfg('GITHUB_TOKEN');
         if ($token === '') {
-            json_out(null, 422, 'No hay GitHub Token: el límite es de 60 peticiones/hora y ghcr.io usará el registro anónimo.');
+            json_out(null, 422, 'No hay GITHUB_TOKEN en el .env: el límite de GitHub es de 60 peticiones/hora y ghcr.io usará el registro anónimo.');
         }
         $headers = ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/vnd.github+json', 'User-Agent' => 'telegram-notifier'];
         try {
@@ -117,15 +119,15 @@ switch ($action) {
 
     case 'php':
         // PHP de consola para «Verificar» y el cron. Vacío = el que autodetecta php_cli_binary().
-        $binary = trim((string) ($_POST['php_cli'] ?? ''));
+        $binary = trim((string) cfg('PHP_CLI'));
         $auto   = $binary === '';
         if ($auto) {
             $binary = php_cli_binary() ?? '';
             if ($binary === '') {
-                json_out(null, 422, 'No se encontró ningún PHP 8 de consola. Indica la ruta (IONOS: /usr/bin/php8.4-cli).');
+                json_out(null, 422, 'No se encontró ningún PHP 8 de consola. Pon PHP_CLI en el .env (IONOS: /usr/bin/php8.4-cli).');
             }
         } elseif (!preg_match('#^/[\w./-]+$#', $binary)) {
-            json_out(null, 422, 'Indica una ruta absoluta, p. ej. /usr/bin/php8.4-cli.');
+            json_out(null, 422, 'PHP_CLI del .env debe ser una ruta absoluta, p. ej. /usr/bin/php8.4-cli.');
         }
         $major = php_cli_version($binary);
         if ($major < 8) {

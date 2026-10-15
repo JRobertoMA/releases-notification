@@ -54,7 +54,7 @@ try {
             default                               => 'tag exacto; avisa cuando cambia su contenido',
         };
     } else {
-        $preview  = OciRegistry::preview($client, $resolved['name'], $pattern, (string) ($config['GITHUB_TOKEN'] ?? ''));
+        $preview  = OciRegistry::preview($client, $resolved['name'], $pattern, (string) cfg('GITHUB_TOKEN'));
         $tags     = $preview['tags'];
         $selected = $preview['selected'];
         $approx   = $preview['approximate'];

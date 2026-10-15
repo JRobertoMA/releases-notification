@@ -49,7 +49,7 @@ if (!$all && count($ids) === 1) {
 if (!$all && $ids === []) {
     redirect_with('No se seleccionó ningún repositorio.', 'warning');
 }
-$jobs = Jobs::fromBase(BASE_DIR);
+$jobs = new Jobs();
 if (($running = $jobs->running()) !== null) {
     redirect_with('Ya hay una verificación en curso (' . $running['done'] . '/' . $running['total'] . '). Espera a que termine.', 'warning');
 }

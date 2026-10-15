@@ -5,62 +5,42 @@ declare(strict_types=1);
 namespace App;
 
 use InvalidArgumentException;
+use PDOException;
 
 /**
- * Usuarios de la interfaz web en data/users.json (sin base de datos, como el resto del proyecto).
+ * Usuarios de la interfaz web (tablas `users` y `user_tokens`; antes data/users.json).
  *
- * Todos los usuarios tienen los mismos permisos. El primero se crea desde login.php cuando no existe ninguno
- * (createFirst comprueba que siga vacío dentro del bloqueo). Los tokens «Recordarme» se guardan como
- * selector + sha256(validator): la cookie no sirve de nada si alguien lee el fichero.
+ * Los usuarios solo se crean por consola (cli/user.php) o desde la página Usuarios ya con sesión iniciada.
+ * Los tokens «Recordarme» se guardan como selector + sha256(validator): la cookie no se puede reconstruir
+ * aunque alguien lea la base de datos.
  */
 final class Users
 {
     public const TOKEN_TTL = 30 * 86400;
     private const MIN_PASSWORD = 10;
 
-    public function __construct(private readonly string $file)
-    {
-    }
-
-    public static function fromBase(string $baseDir): self
-    {
-        return new self($baseDir . '/data/users.json');
-    }
-
     /** @return list<array> */
     public function all(): array
     {
-        $users = JsonFile::read($this->file, []);
-        return is_array($users) ? array_values($users) : [];
+        return Database::all('SELECT * FROM users ORDER BY username');
     }
 
     public function count(): int
     {
-        return count($this->all());
+        return (int) Database::value('SELECT COUNT(*) FROM users');
     }
 
     public function find(string $id): ?array
     {
-        foreach ($this->all() as $u) {
-            if (($u['id'] ?? null) === $id) {
-                return $u;
-            }
-        }
-        return null;
+        return Database::one('SELECT * FROM users WHERE id = ?', [$id]);
     }
 
     public function findByUsername(string $username): ?array
     {
-        $username = self::normalizeUsername($username);
-        foreach ($this->all() as $u) {
-            if (($u['username'] ?? null) === $username) {
-                return $u;
-            }
-        }
-        return null;
+        return Database::one('SELECT * FROM users WHERE username = ?', [self::normalizeUsername($username)]);
     }
 
-    /** Datos seguros para mostrar: sin hash ni tokens. */
+    /** Datos seguros para mostrar: sin hash. */
     public static function publicData(array $user): array
     {
         return [
@@ -92,7 +72,7 @@ final class Users
     }
 
     /**
-     * @param bool $onlyIfEmpty  alta inicial: falla si ya existe algún usuario
+     * @param bool $onlyIfEmpty  falla si ya existe algún usuario
      * @throws InvalidArgumentException con un mensaje apto para mostrar
      */
     public function create(string $username, string $password, bool $onlyIfEmpty = false): array
@@ -105,23 +85,32 @@ final class Users
             'id'            => bin2hex(random_bytes(4)),
             'username'      => $username,
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-            'created_at'    => date('Y-m-d H:i:s'),
+            'created_at'    => Database::now(),
             'last_login_at' => null,
-            'tokens'        => [],
         ];
-        $this->modify(function (array $users) use ($user, $onlyIfEmpty) {
-            if ($onlyIfEmpty && $users !== []) {
-                throw new InvalidArgumentException('Ya existe un administrador. Inicia sesión.');
+        Database::withLock('users', function () use ($user, $onlyIfEmpty) {
+            if ($onlyIfEmpty && $this->count() > 0) {
+                throw new InvalidArgumentException('Ya existe un usuario.');
             }
-            foreach ($users as $u) {
-                if ($u['username'] === $user['username']) {
+            try {
+                self::insertRow($user);
+            } catch (PDOException $e) {
+                if (($e->errorInfo[1] ?? 0) === 1062) {
                     throw new InvalidArgumentException("El usuario «{$user['username']}» ya existe.");
                 }
+                throw $e;
             }
-            $users[] = $user;
-            return $users;
         });
         return $user;
+    }
+
+    /** Inserta una fila de usuario tal cual (también la usa la importación desde JSON). */
+    public static function insertRow(array $user): void
+    {
+        Database::run(
+            'INSERT INTO users (id, username, password_hash, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)',
+            [$user['id'], $user['username'], $user['password_hash'], $user['created_at'], $user['last_login_at'] ?? null]
+        );
     }
 
     /** Usuario si la contraseña es correcta. Tarda lo mismo exista o no el usuario. */
@@ -133,7 +122,7 @@ final class Users
             return null;
         }
         if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
-            $this->update($user['id'], fn (array $u) => array_merge($u, ['password_hash' => password_hash($password, PASSWORD_DEFAULT)]));
+            Database::run('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_DEFAULT), $user['id']]);
         }
         return $user;
     }
@@ -144,25 +133,25 @@ final class Users
         if (($e = self::passwordError($password)) !== null) {
             throw new InvalidArgumentException($e);
         }
-        $this->update($id, fn (array $u) => array_merge($u, [
-            'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-            'tokens'        => [],
-        ]));
+        Database::transaction(function () use ($id, $password) {
+            Database::run('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_DEFAULT), $id]);
+            Database::run('DELETE FROM user_tokens WHERE user_id = ?', [$id]);
+        });
     }
 
     public function delete(string $id): void
     {
-        $this->modify(function (array $users) use ($id) {
-            if (count($users) <= 1) {
+        Database::withLock('users', function () use ($id) {
+            if ($this->count() <= 1) {
                 throw new InvalidArgumentException('No se puede eliminar el último usuario.');
             }
-            return array_values(array_filter($users, fn ($u) => $u['id'] !== $id));
+            Database::run('DELETE FROM users WHERE id = ?', [$id]);   // sus tokens caen en cascada
         });
     }
 
     public function touchLogin(string $id): void
     {
-        $this->update($id, fn (array $u) => array_merge($u, ['last_login_at' => date('Y-m-d H:i:s')]));
+        Database::run('UPDATE users SET last_login_at = ? WHERE id = ?', [Database::now(), $id]);
     }
 
     /** Huella de la contraseña actual: la sesión deja de valer si la contraseña cambia en otro sitio. */
@@ -178,16 +167,17 @@ final class Users
     {
         $selector  = bin2hex(random_bytes(9));
         $validator = bin2hex(random_bytes(32));
-        $this->update($userId, function (array $u) use ($selector, $validator) {
-            $u['tokens']   = self::liveTokens($u['tokens'] ?? []);
-            $u['tokens'][] = [
-                'selector'   => $selector,
-                'hash'       => hash('sha256', $validator),
-                'expires_at' => time() + self::TOKEN_TTL,
-            ];
-            return $u;
-        });
+        Database::run('DELETE FROM user_tokens WHERE expires_at < ?', [time()]);
+        self::insertToken($userId, $selector, hash('sha256', $validator), time() + self::TOKEN_TTL);
         return $selector . ':' . $validator;
+    }
+
+    public static function insertToken(string $userId, string $selector, string $validatorHash, int $expiresAt): void
+    {
+        Database::run(
+            'INSERT INTO user_tokens (selector, user_id, validator_hash, expires_at) VALUES (?, ?, ?, ?)',
+            [$selector, $userId, $validatorHash, $expiresAt]
+        );
     }
 
     /**
@@ -201,66 +191,33 @@ final class Users
             return null;
         }
         [, $selector, $validator] = $m;
-        $newValidator = bin2hex(random_bytes(32));
-        $found        = null;
 
-        $this->modify(function (array $users) use ($selector, $validator, $newValidator, &$found) {
-            foreach ($users as &$u) {
-                $u['tokens'] = self::liveTokens($u['tokens'] ?? []);
-                foreach ($u['tokens'] as &$t) {
-                    if ($t['selector'] === $selector && hash_equals($t['hash'], hash('sha256', $validator))) {
-                        $t['hash']       = hash('sha256', $newValidator);
-                        $t['expires_at'] = time() + self::TOKEN_TTL;
-                        $found           = $u;
-                    }
-                }
-                unset($t);
+        return Database::transaction(function () use ($selector, $validator) {
+            $token = Database::one('SELECT * FROM user_tokens WHERE selector = ? FOR UPDATE', [$selector]);
+            if ($token === null || (int) $token['expires_at'] < time()
+                || !hash_equals($token['validator_hash'], hash('sha256', $validator))) {
+                return null;
             }
-            unset($u);
-            return $users;
+            $user = $this->find($token['user_id']);
+            if ($user === null) {
+                return null;
+            }
+            $newValidator = bin2hex(random_bytes(32));
+            Database::run(
+                'UPDATE user_tokens SET validator_hash = ?, expires_at = ? WHERE selector = ?',
+                [hash('sha256', $newValidator), time() + self::TOKEN_TTL, $selector]
+            );
+            return ['user' => $user, 'cookie' => $selector . ':' . $newValidator];
         });
-
-        return $found === null ? null : ['user' => $found, 'cookie' => $selector . ':' . $newValidator];
     }
 
     public function revokeToken(string $cookie): void
     {
-        $selector = explode(':', $cookie, 2)[0];
-        $this->modify(function (array $users) use ($selector) {
-            foreach ($users as &$u) {
-                $u['tokens'] = array_values(array_filter(
-                    self::liveTokens($u['tokens'] ?? []),
-                    fn ($t) => $t['selector'] !== $selector
-                ));
-            }
-            unset($u);
-            return $users;
-        });
+        Database::run('DELETE FROM user_tokens WHERE selector = ?', [explode(':', $cookie, 2)[0]]);
     }
 
-    private static function liveTokens(array $tokens): array
+    public function tokenCount(string $userId): int
     {
-        return array_values(array_filter($tokens, fn ($t) => ($t['expires_at'] ?? 0) > time()));
-    }
-
-    // --- Persistencia ---------------------------------------------------------------------------
-
-    private function update(string $id, callable $fn): void
-    {
-        $this->modify(function (array $users) use ($id, $fn) {
-            foreach ($users as $i => $u) {
-                if ($u['id'] === $id) {
-                    $users[$i] = $fn($u);
-                }
-            }
-            return $users;
-        });
-    }
-
-    /** Bajo LOCK_EX. Si $fn lanza una excepción el fichero no se toca (JsonFile trunca después de $fn). */
-    private function modify(callable $fn): void
-    {
-        JsonFile::ensureDir(dirname($this->file));
-        JsonFile::modify($this->file, fn ($users) => array_values($fn(is_array($users) ? array_values($users) : [])));
+        return (int) Database::value('SELECT COUNT(*) FROM user_tokens WHERE user_id = ? AND expires_at >= ?', [$userId, time()]);
     }
 }

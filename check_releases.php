@@ -29,35 +29,42 @@ umask(0077);
 
 require_once __DIR__ . '/vendor/autoload.php';
 
+use App\AppConfig;
+use App\Database;
 use App\DockerHub;
+use App\Env;
+use App\EventLog;
 use App\Jobs;
-use App\JsonFile;
+use App\Files;
 use App\OciRegistry;
 use App\RepoStore;
+use App\RunHealth;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
-// --- Configuration Loading ---
-$config_file = __DIR__ . '/config.json';
-if (!file_exists($config_file)) {
-    die("Error: config.json not found. Please configure the application via settings.php\n");
-}
-$config = json_decode(file_get_contents($config_file), true);
-if (json_last_error() !== JSON_ERROR_NONE) {
-    die("Error: Invalid JSON in config.json\n");
-}
+// --- Configuración: secretos y entorno en .env, ajustes web en la tabla settings (App\AppConfig) ---
+Env::load(__DIR__);
 
 // Misma zona horaria que la web (includes/bootstrap.php). El cron de IONOS ignora el php.ini propio y el
 // servidor está en America/New_York: sin esto, web y cron escribirían horas distintas.
-$app_tz = (string) ($config['APP_TIMEZONE'] ?? '');
-date_default_timezone_set(in_array($app_tz, timezone_identifiers_list(), true) ? $app_tz : 'America/Mexico_City');
-OciRegistry::setAllowedHosts(is_array($config['OCI_REGISTRIES'] ?? null) ? $config['OCI_REGISTRIES'] : null);
+date_default_timezone_set(AppConfig::timezone());
 
-$telegram_bot_token = $config['TELEGRAM_BOT_TOKEN'] ?? '';
-$telegram_chat_id   = $config['TELEGRAM_CHAT_ID'] ?? '';
-$github_token       = $config['GITHUB_TOKEN'] ?? '';
-$log_file           = __DIR__ . '/app_log.json';
-$history_file       = __DIR__ . '/release_history.json';
+if (!Database::isConfigured()) {
+    die("Error: falta configurar la base de datos en .env (ver .env.example)\n");
+}
+try {
+    if (!Database::hasSchema()) {
+        die("Error: faltan las tablas. Ejecuta cli/migrate.php\n");
+    }
+} catch (PDOException $e) {
+    die('Error: no se pudo conectar a la base de datos: ' . $e->getMessage() . "\n");
+}
+
+OciRegistry::setAllowedHosts((array) AppConfig::get('OCI_REGISTRIES'));
+
+$telegram_bot_token = (string) AppConfig::get('TELEGRAM_BOT_TOKEN');
+$telegram_chat_id   = (string) AppConfig::get('TELEGRAM_CHAT_ID');
+$github_token       = (string) AppConfig::get('GITHUB_TOKEN');
 
 // --- Arguments ---
 $repo_ids     = null;   // null = todos
@@ -73,37 +80,25 @@ foreach ($argv ?? [] as $arg) {
     }
 }
 
-$store = RepoStore::fromConfig($config, __DIR__);
-$jobs  = Jobs::fromBase(__DIR__);
+$store = new RepoStore();
+$jobs  = new Jobs();
 
 if (empty($telegram_bot_token) || empty($telegram_chat_id)) {
     if ($job_id !== null) {
         $jobs->update($job_id, ['status' => 'failed', 'message' => 'Falta configurar el bot de Telegram.', 'finished_at' => date('c')]);
     }
-    die("Error: Telegram Bot Token and Chat ID must be set in settings.php\n");
+    die("Error: falta TELEGRAM_BOT_TOKEN en .env o el chat de Telegram en Configuración\n");
 }
 
 // --- Logging & History ---
 
 function log_entry($level, $message) {
-    global $log_file;
-    JsonFile::appendCapped($log_file, [
-        'timestamp' => date('Y-m-d H:i:s'),
-        'level'     => $level,
-        'message'   => $message,
-    ], 300);
+    EventLog::log($level, $message);
     echo "[{$level}] {$message}\n";
 }
 
 function record_release($repo_name, $type, $tag, $url = null) {
-    global $history_file;
-    JsonFile::appendCapped($history_file, [
-        'timestamp' => date('Y-m-d H:i:s'),
-        'repo'      => $repo_name,
-        'type'      => $type,
-        'version'   => $tag,
-        'url'       => $url,
-    ], 500);
+    EventLog::release($repo_name, $type, $tag, $url);
 }
 
 // --- API Functions ---
@@ -225,7 +220,7 @@ $is_full = $repo_ids === null;
 // --- Un solo worker para verificaciones completas y jobs ---
 $worker_lock = null;
 if ($is_full || $job_id !== null) {
-    $worker_lock = JsonFile::openLock(__DIR__ . '/data/worker.lock');
+    $worker_lock = Files::openLock(__DIR__ . '/data/worker.lock');
     if (!flock($worker_lock, LOCK_EX | LOCK_NB)) {
         $msg = 'Ya hay una verificación en curso; se omite esta.';
         if ($job_id !== null) {
@@ -382,8 +377,9 @@ foreach ($targets as $snapshot) {
 log_entry('info', "Verificación completada ({$label}). {$new_count} nuevo(s) release(s) detectado(s).");
 
 if ($is_full) {
-    // Para la «salud del cron» del índice (RunHealth)
-    JsonFile::writeAtomic(__DIR__ . '/data/last_run.json', [
+    // Para la «salud del cron» del índice
+    EventLog::prune();
+    RunHealth::record([
         'started_at'  => $started_at,
         'finished_at' => date('Y-m-d H:i:s'),
         'total'       => count($targets),
