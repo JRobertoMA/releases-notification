@@ -8,8 +8,10 @@ declare(strict_types=1);
  *
  * includes/ queda fuera de public/ y además tiene su .htaccess con Require all denied.
  * Antes de incluirlo, una página puede definir:
- *   $public_page = true            no exigir sesión (solo login.php)
- * Todo lo demás, páginas y api/, exige sesión iniciada (ver final del fichero).
+ *   $public_page = true            no exigir sesión (login.php, login_2fa.php)
+ *   $allow_without_2fa = true      accesible para un admin que aún no activó el 2FA (account.php, logout.php…)
+ * Todo lo demás, páginas y api/, exige sesión iniciada (ver final del fichero). Los permisos por rol se
+ * comprueban en cada página o endpoint con require_permission() (App\Access).
  *
  * Orden (importa): .env → zona horaria → HTTPS y cabeceras → cookies → sesión → base de datos → autenticación.
  * Configuración: secretos y entorno en .env (solo lectura), ajustes web en la tabla `settings` (App\AppConfig).
@@ -23,6 +25,7 @@ define('BASE_DIR', dirname(__DIR__));
 
 require_once BASE_DIR . '/vendor/autoload.php';
 
+use App\Access;
 use App\AppConfig;
 use App\Auth;
 use App\Database;
@@ -311,7 +314,7 @@ function php_cli_version(string $bin): int
 
 /**
  * PHP de consola para lanzar check_releases.php. Nunca devuelve un PHP < 8: en IONOS `php` es PHP 4.4.
- * Orden: PHP_CLI de config.json → binarios versionados de IONOS → el de este servidor.
+ * Orden: PHP_CLI del .env → binarios versionados de IONOS → el de este servidor.
  */
 function php_cli_binary(): ?string
 {
@@ -374,9 +377,35 @@ function current_user(): ?array
 function safe_next(?string $next): string
 {
     $next = (string) $next;
-    return preg_match('/^[a-z_]+\.php(\?[^\s]*)?$/', $next) && !preg_match('/^(login|logout)\.php/', $next)
+    return preg_match('/^[a-z0-9_]+\.php(\?[^\s]*)?$/', $next) && !preg_match('/^(login|login_2fa|logout)\.php/', $next)
         ? $next
         : 'index.php';
+}
+
+/** ¿Puede el usuario actual…? Para mostrar u ocultar controles; la decisión real es require_permission(). */
+function can(string $permission): bool
+{
+    return Access::can(current_user(), $permission);
+}
+
+/** Corta la petición con 403 si el usuario actual no tiene el permiso (página o JSON según el caso). */
+function require_permission(string $permission): void
+{
+    if (can($permission)) {
+        return;
+    }
+    if (wants_json()) {
+        json_out(null, 403, 'Tu rol no permite esta acción.');
+    }
+    http_response_code(403);
+    $page_title = 'Sin permiso';
+    require __DIR__ . '/header.php';
+    echo '<div class="alert alert-warning d-flex gap-2 align-items-start" role="alert">' . icon('lock-fill', 'mt-1')
+        . '<div><strong>Tu rol no permite esta acción.</strong> Eres ' . h(Access::ROLES[current_user()['role'] ?? ''] ?? 'usuario')
+        . '; pide a un administrador que te cambie el rol si lo necesitas. <a href="index.php" class="alert-link">Volver a los repositorios</a></div></div>';
+    require __DIR__ . '/footer.php';
+    echo '</body></html>';
+    exit;
 }
 
 if (empty($public_page) && current_user() === null) {
@@ -388,4 +417,12 @@ if (empty($public_page) && current_user() === null) {
         ? basename($_SERVER['SCRIPT_NAME'] ?? 'index.php') . (empty($_SERVER['QUERY_STRING']) ? '' : '?' . $_SERVER['QUERY_STRING'])
         : 'index.php';
     redirect('login.php?next=' . urlencode(safe_next($next)));
+}
+
+// 2FA obligatorio para administradores: hasta activarlo solo pueden entrar en «Mi cuenta» y cerrar sesión
+if (empty($public_page) && empty($allow_without_2fa) && Access::needsTwoFactorSetup(current_user())) {
+    if (wants_json()) {
+        json_out(null, 403, 'Activa primero la verificación en dos pasos en «Mi cuenta».');
+    }
+    redirect_with('Los administradores deben activar la verificación en dos pasos antes de continuar.', 'warning', 'account.php');
 }

@@ -64,7 +64,9 @@ require __DIR__ . '/../includes/header.php';
                 <?php if (Repo::hasTagPattern($mtype) && !empty($matched_repo['tag_pattern'])): ?>
                     <span class="meta">Patrón: <code><?= h($matched_repo['tag_pattern']) ?></code></span>
                 <?php endif; ?>
-                <a href="edit_repo.php?id=<?= h($matched_repo['id']) ?>" class="btn btn-outline-secondary btn-sm ms-auto"><?= icon('pencil', 'me-1') ?>Editar</a>
+                <?php if (can('repos.write')): ?>
+                    <a href="edit_repo.php?id=<?= h($matched_repo['id']) ?>" class="btn btn-outline-secondary btn-sm ms-auto"><?= icon('pencil', 'me-1') ?>Editar</a>
+                <?php endif; ?>
             </div>
             <div class="row g-3">
                 <div class="col-sm-4">

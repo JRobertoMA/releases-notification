@@ -9,6 +9,7 @@ use App\OciRegistry;
 use App\RepoInput;
 use App\RepoStore;
 
+require_permission('repos.write');
 require_post_csrf();
 
 $type  = (string) ($_POST['repo_type'] ?? '');
@@ -32,7 +33,7 @@ $name = $resolved['name'];
 
 if ($type === 'oci' && !OciRegistry::isAllowed($name)) {
     redirect_with('Registro no permitido: ' . OciRegistry::hostOf($name)
-        . '. Solo se consultan registros conocidos; para añadir otro, inclúyelo en OCI_REGISTRIES de config.json.', 'warning');
+        . '. Solo se consultan registros conocidos; para añadir otro, un administrador puede permitirlo en Configuración → Registros OCI permitidos.', 'warning');
 }
 
 $tags    = parse_tags((string) ($_POST['repo_tags'] ?? ''));

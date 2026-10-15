@@ -20,6 +20,8 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 
+require_permission('repos.check');
+
 $type    = (string) ($_GET['type'] ?? '');
 $repo    = trim((string) ($_GET['repo'] ?? ''));
 $pattern = trim((string) ($_GET['pattern'] ?? ''));
@@ -36,7 +38,7 @@ if ($resolved === null || !in_array($resolved['type'], ['docker', 'oci'], true))
 
 if ($resolved['type'] === 'oci' && !OciRegistry::isAllowed($resolved['name'])) {
     json_out(null, 422, 'Registro no permitido: ' . OciRegistry::hostOf($resolved['name'])
-        . '. Para añadir otro, inclúyelo en OCI_REGISTRIES de config.json.');
+        . '. Un administrador puede permitirlo en Configuración → Registros OCI permitidos.');
 }
 
 $client = new Client();

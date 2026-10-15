@@ -48,6 +48,10 @@ if ($job === null || !in_array($job['status'], ['queued', 'running'], true)) {
     $job = $jobs->running() ?? ($job !== null && in_array($job['status'], ['busy', 'failed'], true) ? $job : null);
 }
 
+// Controles según el rol (la decisión real la toma cada endpoint con require_permission())
+$can_write = can('repos.write');
+$can_check = can('repos.check');
+
 $page_title = 'Repositorios';
 $active     = 'repos';
 require __DIR__ . '/../includes/header.php';
@@ -79,7 +83,10 @@ $stat_cards = [
         </div>
     </div>
     <div class="d-flex flex-wrap gap-2">
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal"><?= icon('plus-lg', 'me-1') ?>Agregar</button>
+        <?php if ($can_write): ?>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal"><?= icon('plus-lg', 'me-1') ?>Agregar</button>
+        <?php endif; ?>
+        <?php if ($can_check): ?>
         <button type="button" class="btn btn-outline-success"
                 data-bs-toggle="modal" data-bs-target="#confirmModal"
                 data-action="run_check.php" data-params='{"all":1}'
@@ -89,6 +96,7 @@ $stat_cards = [
                 <?= $job ? 'disabled' : '' ?>>
             <?= icon('arrow-repeat', 'me-1') ?>Verificar todo
         </button>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -97,7 +105,11 @@ $stat_cards = [
         <?= icon('exclamation-triangle-fill', 'mt-1') ?>
         <div>
             <strong>Los avisos de Telegram no están configurados:</strong> <?= implode('; ', $missing_telegram) ?>.
-            <a href="settings.php" class="alert-link">Ir a Configuración</a>
+            <?php if (can('settings')): ?>
+                <a href="settings.php" class="alert-link">Ir a Configuración</a>
+            <?php else: ?>
+                Avisa a un administrador.
+            <?php endif; ?>
         </div>
     </div>
 <?php endif; ?>
@@ -167,10 +179,14 @@ $stat_cards = [
 
 <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div class="form-check mb-0">
-            <input class="form-check-input" type="checkbox" id="select-all">
-            <label class="form-check-label" for="select-all">Repositorios monitoreados</label>
-        </div>
+        <?php if ($can_write): ?>
+            <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" id="select-all">
+                <label class="form-check-label" for="select-all">Repositorios monitoreados</label>
+            </div>
+        <?php else: ?>
+            <span>Repositorios monitoreados</span>
+        <?php endif; ?>
         <div class="d-flex align-items-center gap-2">
             <span id="filter-count" class="meta" aria-live="polite"></span>
             <button type="button" class="btn btn-sm btn-link p-0" id="clear-filters" hidden>Limpiar filtros</button>
@@ -180,7 +196,9 @@ $stat_cards = [
         <table class="table table-hover align-middle mb-0 repo-table">
             <thead>
                 <tr>
-                    <th class="c-select" style="width:2.5rem"><span class="visually-hidden">Seleccionar</span></th>
+                    <?php if ($can_write): ?>
+                        <th class="c-select" style="width:2.5rem"><span class="visually-hidden">Seleccionar</span></th>
+                    <?php endif; ?>
                     <th>Repositorio</th>
                     <th>Tipo</th>
                     <th>Último release</th>
@@ -192,9 +210,11 @@ $stat_cards = [
             <tbody id="repos-tbody">
             <?php if ($repos === []): ?>
                 <tr class="empty-row">
-                    <td colspan="7" class="text-center py-4">
-                        Aún no vigilas ningún repositorio.
-                        <button type="button" class="btn btn-link p-0 align-baseline" data-bs-toggle="modal" data-bs-target="#addModal">Agrega el primero</button>.
+                    <td colspan="<?= $can_write ? 7 : 6 ?>" class="text-center py-4">
+                        Aún no se vigila ningún repositorio.
+                        <?php if ($can_write): ?>
+                            <button type="button" class="btn btn-link p-0 align-baseline" data-bs-toggle="modal" data-bs-target="#addModal">Agrega el primero</button>.
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php else: ?>
@@ -216,9 +236,11 @@ $stat_cards = [
                     data-status="<?= h($repo['check_status'] ?? 'unknown') ?>"
                     data-tags="<?= h(implode('|', $repo['tags'] ?? [])) ?>"
                     data-outdated="<?= $outdated ? '1' : '0' ?>">
-                    <td class="c-select">
-                        <input class="form-check-input row-check" type="checkbox" value="<?= h($id) ?>" aria-label="Seleccionar <?= h($name) ?>">
-                    </td>
+                    <?php if ($can_write): ?>
+                        <td class="c-select">
+                            <input class="form-check-input row-check" type="checkbox" value="<?= h($id) ?>" aria-label="Seleccionar <?= h($name) ?>">
+                        </td>
+                    <?php endif; ?>
                     <td class="c-name">
                         <a href="history.php?repo=<?= urlencode($name) ?>" class="fw-semibold link-body-emphasis text-decoration-none text-break"
                            title="Ver historial"><?= h($name) ?></a>
@@ -268,6 +290,15 @@ $stat_cards = [
                     </td>
                     <td class="c-checked meta"><?= time_tag($repo['last_checked'] ?? null, 'nunca') ?></td>
                     <td class="c-actions text-end">
+                        <?php if (!$can_write): ?>
+                            <div class="btn-group btn-group-sm">
+                                <a class="btn btn-outline-secondary" href="history.php?repo=<?= urlencode($name) ?>"><?= icon('clock-history', 'me-1') ?>Historial</a>
+                                <?php if ($web_url): ?>
+                                    <a class="btn btn-outline-secondary" href="<?= h($web_url) ?>" target="_blank" rel="noopener"
+                                       aria-label="Abrir <?= h($name) ?> en <?= h(Repo::TYPES[$type] ?? $type) ?> (nueva pestaña)"><?= icon('box-arrow-up-right') ?></a>
+                                <?php endif; ?>
+                            </div>
+                        <?php else: ?>
                         <div class="btn-group btn-group-sm">
                             <?php if ($outdated): ?>
                                 <button type="button" class="btn btn-warning" <?= $sync_attrs ?>
@@ -301,11 +332,12 @@ $stat_cards = [
                                 </li>
                             </ul>
                         </div>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
                 <tr id="no-filter-results" class="empty-row" hidden>
-                    <td colspan="7" class="text-center py-4 text-body-secondary">
+                    <td colspan="<?= $can_write ? 7 : 6 ?>" class="text-center py-4 text-body-secondary">
                         No hay repositorios que coincidan con los filtros.
                         <button type="button" class="btn btn-link p-0 align-baseline" data-clear-filters>Limpiar filtros</button>
                     </td>
@@ -316,12 +348,15 @@ $stat_cards = [
     </div>
 </div>
 
+<?php if ($can_write): ?>
 <!-- Acciones masivas (PROPUESTA_UX §2.6) -->
 <div class="bulk-bar card shadow" id="bulk-bar" hidden>
     <div class="card-body py-2 d-flex flex-wrap gap-2 align-items-center">
         <span><strong id="bulk-count">0</strong> seleccionados</span>
         <button type="button" class="btn btn-sm btn-warning" data-bulk="sync"><?= icon('check2-circle', 'me-1') ?>Sincronizar</button>
-        <button type="button" class="btn btn-sm btn-success" data-bulk="check"><?= icon('arrow-repeat', 'me-1') ?>Verificar</button>
+        <?php if ($can_check): ?>
+            <button type="button" class="btn btn-sm btn-success" data-bulk="check"><?= icon('arrow-repeat', 'me-1') ?>Verificar</button>
+        <?php endif; ?>
         <div class="input-group input-group-sm" style="width:auto">
             <label class="visually-hidden" for="bulk-tag">Etiqueta</label>
             <input type="text" id="bulk-tag" class="form-control" placeholder="etiqueta" list="tag-list" style="max-width:9rem">
@@ -331,12 +366,14 @@ $stat_cards = [
         <button type="button" class="btn btn-sm btn-link" data-bulk="clear">Deseleccionar</button>
     </div>
 </div>
+<?php endif; ?>
 <datalist id="tag-list">
     <?php foreach (array_keys($all_tags) as $tag): ?>
         <option value="<?= h($tag) ?>"></option>
     <?php endforeach; ?>
 </datalist>
 
+<?php if ($can_write): ?>
 <!-- Alta de repositorio (PROPUESTA_UX §1.1–1.4) -->
 <div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalTitle" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
@@ -380,6 +417,7 @@ $stat_cards = [
         </form>
     </div>
 </div>
+<?php endif; ?>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>
 <script>
@@ -420,7 +458,8 @@ $stat_cards = [
                 && (!s.tag || tags.indexOf(s.tag) !== -1)
                 && (!s.outdated || row.dataset.outdated === '1');
             row.hidden = !show;
-            if (show) { visible++; } else { row.querySelector('.row-check').checked = false; }
+            var check = row.querySelector('.row-check');
+            if (show) { visible++; } else if (check) { check.checked = false; }
         });
         if (noResults) { noResults.hidden = visible !== 0 || rows.length === 0; }
         countEl.textContent = isActive(s) ? visible + ' de ' + rows.length : rows.length + ' repositorios';
@@ -464,7 +503,7 @@ $stat_cards = [
         });
     });
 
-    // --- Selección y acciones masivas ---
+    // --- Selección y acciones masivas (solo con permiso de edición: si no, no existen) ---
     var selectAll = document.getElementById('select-all');
     var bulkBar   = document.getElementById('bulk-bar');
     var bulkCount = document.getElementById('bulk-count');
@@ -474,6 +513,7 @@ $stat_cards = [
                    .map(function (r) { return r.dataset.id; });
     }
     function updateBulk() {
+        if (!bulkBar) { return; }
         var ids = selectedIds();
         var visible = rows.filter(function (r) { return !r.hidden; }).length;
         bulkBar.hidden = ids.length === 0;
@@ -481,61 +521,65 @@ $stat_cards = [
         selectAll.checked = ids.length > 0 && ids.length === visible;
         selectAll.indeterminate = ids.length > 0 && ids.length < visible;
     }
-    tbody.addEventListener('change', function (e) { if (e.target.classList.contains('row-check')) { updateBulk(); } });
-    selectAll.addEventListener('change', function () {
-        rows.forEach(function (r) { if (!r.hidden) { r.querySelector('.row-check').checked = selectAll.checked; } });
-        updateBulk();
-    });
-    bulkBar.addEventListener('click', function (e) {
-        var btn = e.target.closest('[data-bulk]');
-        if (!btn) { return; }
-        var ids = selectedIds(), action = btn.dataset.bulk;
-        var tag = document.getElementById('bulk-tag').value.trim();
-        if (action === 'clear') {
-            rows.forEach(function (r) { r.querySelector('.row-check').checked = false; });
+    if (bulkBar) {
+        tbody.addEventListener('change', function (e) { if (e.target.classList.contains('row-check')) { updateBulk(); } });
+        selectAll.addEventListener('change', function () {
+            rows.forEach(function (r) { if (!r.hidden) { r.querySelector('.row-check').checked = selectAll.checked; } });
             updateBulk();
-        } else if (action === 'sync') {
-            App.submit('sync_version.php', { ids: ids });
-        } else if (action === 'check') {
-            App.submit('run_check.php', { ids: ids }, ids.length === 1 ? 'Verificando…' : null);
-        } else if (action === 'tag-add' || action === 'tag-remove') {
-            if (!tag) { App.toast('Escribe la etiqueta primero.', 'warning'); document.getElementById('bulk-tag').focus(); return; }
-            App.submit('bulk_tag.php', { ids: ids, tag: tag, mode: action === 'tag-add' ? 'add' : 'remove' });
-        }
-    });
-
-    // --- Alta: detección por URL + patrón con vista previa ---
-    var addModal  = document.getElementById('addModal');
-    var nameInput = document.getElementById('repo_name');
-    var typeSel   = document.getElementById('repo_type');
-    var detectEl  = document.getElementById('repo_detect');
-    var patBlock  = document.getElementById('pattern-block');
-    var detectDefault = detectEl.innerHTML;
-    var TYPE_LABELS = <?= js(Repo::TYPES) ?>;
-
-    var widget = App.patternWidget(patBlock.querySelector('[data-pattern-widget]'), {
-        type: function () { return typeSel.value; },
-        name: function () { return nameInput.value; }
-    });
-
-    function onRepoChange() {
-        var d = App.detectRepo(nameInput.value);
-        if (d) {
-            typeSel.value = d.type;
-            detectEl.innerHTML = App.ok('Detectado: <strong>') + App.esc(TYPE_LABELS[d.type]) + '</strong> · <code>' + App.esc(d.name) + '</code>';
-        } else {
-            detectEl.innerHTML = detectDefault;
-        }
-        patBlock.hidden = !(typeSel.value === 'docker' || typeSel.value === 'oci');
-        widget.schedule();
+        });
+        bulkBar.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-bulk]');
+            if (!btn) { return; }
+            var ids = selectedIds(), action = btn.dataset.bulk;
+            var tag = document.getElementById('bulk-tag').value.trim();
+            if (action === 'clear') {
+                rows.forEach(function (r) { r.querySelector('.row-check').checked = false; });
+                updateBulk();
+            } else if (action === 'sync') {
+                App.submit('sync_version.php', { ids: ids });
+            } else if (action === 'check') {
+                App.submit('run_check.php', { ids: ids }, ids.length === 1 ? 'Verificando…' : null);
+            } else if (action === 'tag-add' || action === 'tag-remove') {
+                if (!tag) { App.toast('Escribe la etiqueta primero.', 'warning'); document.getElementById('bulk-tag').focus(); return; }
+                App.submit('bulk_tag.php', { ids: ids, tag: tag, mode: action === 'tag-add' ? 'add' : 'remove' });
+            }
+        });
     }
-    nameInput.addEventListener('input', onRepoChange);
-    typeSel.addEventListener('change', function () {
-        patBlock.hidden = !(typeSel.value === 'docker' || typeSel.value === 'oci');
-        widget.schedule();
-    });
-    addModal.addEventListener('shown.bs.modal', function () { nameInput.focus(); });
-    if (new URLSearchParams(location.search).has('add')) { new bootstrap.Modal(addModal).show(); }
+
+    // --- Alta: detección por URL + patrón con vista previa (solo con permiso de edición) ---
+    var addModal  = document.getElementById('addModal');
+    if (addModal) {
+        var nameInput = document.getElementById('repo_name');
+        var typeSel   = document.getElementById('repo_type');
+        var detectEl  = document.getElementById('repo_detect');
+        var patBlock  = document.getElementById('pattern-block');
+        var detectDefault = detectEl.innerHTML;
+        var TYPE_LABELS = <?= js(Repo::TYPES) ?>;
+
+        var widget = App.patternWidget(patBlock.querySelector('[data-pattern-widget]'), {
+            type: function () { return typeSel.value; },
+            name: function () { return nameInput.value; }
+        });
+
+        function onRepoChange() {
+            var d = App.detectRepo(nameInput.value);
+            if (d) {
+                typeSel.value = d.type;
+                detectEl.innerHTML = App.ok('Detectado: <strong>') + App.esc(TYPE_LABELS[d.type]) + '</strong> · <code>' + App.esc(d.name) + '</code>';
+            } else {
+                detectEl.innerHTML = detectDefault;
+            }
+            patBlock.hidden = !(typeSel.value === 'docker' || typeSel.value === 'oci');
+            widget.schedule();
+        }
+        nameInput.addEventListener('input', onRepoChange);
+        typeSel.addEventListener('change', function () {
+            patBlock.hidden = !(typeSel.value === 'docker' || typeSel.value === 'oci');
+            widget.schedule();
+        });
+        addModal.addEventListener('shown.bs.modal', function () { nameInput.focus(); });
+        if (new URLSearchParams(location.search).has('add')) { new bootstrap.Modal(addModal).show(); }
+    }
 
     // Filtros recordados: al final, cuando ya existen todos los elementos que applyFilters() toca
     var saved = {};

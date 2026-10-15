@@ -5,12 +5,16 @@ declare(strict_types=1);
 /**
  * Inicio de sesión. Los usuarios solo se crean por consola (cli/user.php): una alta desde la web dejaría que
  * cualquiera que encuentre el subdominio cree el primer administrador (SECURITY_AUDIT.md §2).
+ *
+ * Con 2FA activo, la contraseña correcta solo abre el segundo paso (login_2fa.php). Los intentos fallidos no se
+ * limpian hasta completarlo: si no, reintroducir la contraseña reiniciaría el límite de intentos del código.
  */
 
 $public_page = true;
 require __DIR__ . '/../includes/bootstrap.php';
 
 use App\LoginThrottle;
+use App\Users;
 
 $next     = safe_next($_POST['next'] ?? ($_GET['next'] ?? null));
 $no_users = users()->count() === 0;
@@ -35,6 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$no_users) {
     } elseif (($user = users()->verify($username, $password)) === null) {
         $throttle->fail($ip, $username);
         $error = 'Usuario o contraseña incorrectos.';
+    } elseif (Users::hasTotp($user)) {
+        auth()->beginSecondFactor($user, !empty($_POST['remember']), $next);
+        redirect('login_2fa.php');
     } else {
         $throttle->clear($ip, $username);
         auth()->login($user, !empty($_POST['remember']));

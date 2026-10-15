@@ -8,8 +8,11 @@ declare(strict_types=1);
  * - Secretos y entorno (token del bot, GitHub Token, base de datos, PHP de consola, zona horaria, HTTPS) viven en el
  *   .env, que la web SOLO LEE: aquí se muestra su estado («termina en …abcd») y se pueden probar, pero cambiarlos
  *   es editar el .env por SSH. Una sesión web robada no puede leer ni cambiar secretos.
- * - Lo ajustable desde la web (chat de Telegram, intervalo del cron, registros OCI extra, tema) va a la tabla
- *   `settings` (App\AppConfig::SETTINGS). Cualquier otro campo enviado se ignora.
+ * - Lo ajustable desde la web (chat de Telegram, intervalo del cron, registros OCI extra, tema por defecto) va a la
+ *   tabla `settings` (App\AppConfig::SETTINGS). Cualquier otro campo enviado se ignora.
+ * - Solo administradores (require_permission('settings')).
+ * - La línea de crontab se recalcula en el navegador al cambiar el intervalo (cronSchedule() en JS replica
+ *   cron_schedule() de aquí: si se cambia una, cambiar la otra).
  */
 
 require __DIR__ . '/../includes/bootstrap.php';
@@ -18,6 +21,8 @@ use App\AppConfig;
 use App\Database;
 use App\Env;
 use App\OciRegistry;
+
+require_permission('settings');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_post_csrf();
@@ -61,9 +66,24 @@ $env_rows = [
     ['GITHUB_TOKEN', 'GitHub Token (opcional)', AppConfig::secretHint('GITHUB_TOKEN'), false, 'github'],
 ];
 
+/**
+ * Expresión de cron para «cada N horas». Nunca más espaciada que N (la portada avisa a las 2N h sin verificar):
+ * menos de 24 h → cada N horas en punto; 168 → semanal; resto → cada floor(N/24) días.
+ */
+function cron_schedule(int $hours): string
+{
+    return match (true) {
+        $hours <= 1    => '0 * * * *',
+        $hours < 24    => "0 */{$hours} * * *",
+        $hours === 168 => '0 0 * * 0',
+        $hours < 48    => '0 0 * * *',
+        default        => '0 0 */' . intdiv($hours, 24) . ' * *',
+    };
+}
+
 // Línea de crontab lista para copiar. En el Docker local el cron vive en el host (docker exec).
 $interval     = max(1, min(168, (int) cfg('CHECK_INTERVAL_HOURS')));
-$schedule     = $interval < 24 ? "0 */{$interval} * * *" : '0 0 * * *';
+$schedule     = cron_schedule($interval);
 $in_docker    = is_file('/.dockerenv');
 $cron_php     = $php_detected ?? '/usr/bin/php8.4-cli';
 $cron_command = $in_docker
@@ -168,16 +188,21 @@ require __DIR__ . '/../includes/header.php';
                 <div class="col-md-4">
                     <label for="check_interval_hours" class="form-label">Intervalo del cron (horas)</label>
                     <input type="number" class="form-control" id="check_interval_hours" name="check_interval_hours"
-                           min="1" max="168" value="<?= $interval ?>" aria-describedby="interval_help">
+                           min="1" max="168" value="<?= $interval ?>" data-saved="<?= $interval ?>" aria-describedby="interval_help">
                     <div id="interval_help" class="form-text">La portada avisa si pasan más de 2 intervalos sin una verificación completa.</div>
                 </div>
                 <div class="col-md-8">
                     <label for="cron_line" class="form-label">Línea para tu crontab <span class="fw-normal text-body-secondary">(<code>crontab -e</code><?= $in_docker ? ', en el host' : ', por SSH' ?>)</span></label>
                     <div class="input-group">
-                        <input type="text" class="form-control font-monospace small" id="cron_line" value="<?= h($cron_line) ?>" readonly>
+                        <input type="text" class="form-control font-monospace small" id="cron_line" value="<?= h($cron_line) ?>"
+                               data-command="<?= h($cron_command) ?>" readonly aria-describedby="cron_desc cron_unsaved">
                         <button type="button" class="btn btn-outline-secondary" id="btn-copy-cron"><?= icon('clipboard', 'me-1') ?>Copiar</button>
                     </div>
-                    <div class="form-text">Se actualiza al guardar. Añade <code>MAILTO=tu@correo</code> en la primera línea del crontab para recibir los errores.</div>
+                    <div id="cron_desc" class="form-text" aria-live="polite"></div>
+                    <div id="cron_unsaved" class="form-text text-warning-emphasis" hidden>
+                        <?= icon('exclamation-triangle-fill', 'me-1') ?>Intervalo sin guardar: pulsa <strong>Guardar configuración</strong> y sustituye la línea de tu crontab por esta.
+                    </div>
+                    <div class="form-text">Añade <code>MAILTO=tu@correo</code> en la primera línea del crontab para recibir los errores. Las horas son las del servidor.</div>
                 </div>
             </div>
         </div>
@@ -199,13 +224,13 @@ require __DIR__ . '/../includes/header.php';
     <section class="card mb-3" aria-labelledby="sec-look">
         <div class="card-header"><h2 class="h6 mb-0" id="sec-look">Apariencia</h2></div>
         <div class="card-body">
-            <label for="theme" class="form-label">Tema</label>
+            <label for="theme" class="form-label">Tema por defecto</label>
             <select class="form-select" id="theme" name="theme" style="max-width:300px">
                 <?php foreach (['auto' => 'Automático (según el sistema)', 'light' => 'Claro', 'dark' => 'Oscuro'] as $k => $label): ?>
                     <option value="<?= $k ?>" <?= $theme === $k ? 'selected' : '' ?>><?= h($label) ?></option>
                 <?php endforeach; ?>
             </select>
-            <div class="form-text">También se cambia con el botón <?= icon('circle-half') ?> de la barra superior.</div>
+            <div class="form-text">Para quien aún no haya elegido el suyo: cada usuario cambia su tema con el botón <?= icon('circle-half') ?> de la barra superior.</div>
         </div>
     </section>
 
@@ -285,6 +310,49 @@ require __DIR__ . '/../includes/header.php';
         });
         list.hidden = false;
     }
+
+    // --- Línea de crontab en vivo: misma regla que cron_schedule() en PHP ---
+    function cronSchedule(h) {
+        if (h <= 1) { return '0 * * * *'; }
+        if (h < 24) { return '0 */' + h + ' * * *'; }
+        if (h === 168) { return '0 0 * * 0'; }
+        if (h < 48) { return '0 0 * * *'; }
+        return '0 0 */' + Math.floor(h / 24) + ' * *';
+    }
+    function pad(n) { return (n < 10 ? '0' : '') + n + ':00'; }
+    function cronDescription(h) {
+        if (h <= 1) { return 'Cada hora, en punto.'; }
+        if (h < 24) {
+            var hours = [];
+            for (var x = 0; x < 24; x += h) { hours.push(pad(x)); }
+            var text = 'Cada ' + h + ' h, en punto';
+            if (hours.length <= 8) { text += ': a las ' + hours.slice(0, -1).join(', ') + ' y ' + hours[hours.length - 1]; }
+            text += '.';
+            if (24 % h !== 0) { text += ' Como 24 no es múltiplo de ' + h + ', el último intervalo del día es más corto (el cron vuelve a empezar a medianoche).'; }
+            return text;
+        }
+        if (h === 168) { return 'Una vez a la semana: el domingo a las 00:00.'; }
+        if (h < 48) { return 'Una vez al día, a las 00:00' + (h > 24 ? ' (con ' + h + ' h el cron no admite otro intervalo: se verifica a diario).' : '.'); }
+        var d = Math.floor(h / 24);
+        return 'Cada ' + d + ' días a las 00:00 (los días 1, ' + (1 + d) + ', ' + (1 + 2 * d) + '… de cada mes)' +
+            (h % 24 ? '; ' + h + ' h se redondea a ' + d + ' días para no verificar menos de lo pedido.' : '.');
+    }
+    var intervalInput = $('check_interval_hours'), cronInput = $('cron_line');
+    function updateCron() {
+        var h = parseInt(intervalInput.value, 10);
+        var valid = h >= 1 && h <= 168;
+        intervalInput.classList.toggle('is-invalid', !valid && intervalInput.value !== '');
+        if (!valid) {
+            $('cron_desc').textContent = 'Escribe un número de horas entre 1 y 168.';
+            $('cron_unsaved').hidden = true;
+            return;
+        }
+        cronInput.value = cronSchedule(h) + ' ' + cronInput.dataset.command;
+        $('cron_desc').textContent = cronDescription(h);
+        $('cron_unsaved').hidden = String(h) === intervalInput.dataset.saved;
+    }
+    intervalInput.addEventListener('input', updateCron);
+    updateCron();
 
     $('btn-copy-cron').addEventListener('click', function () {
         navigator.clipboard.writeText($('cron_line').value).then(function () { App.toast('Línea copiada.', 'success'); });

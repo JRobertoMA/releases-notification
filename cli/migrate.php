@@ -11,6 +11,9 @@ declare(strict_types=1);
  *
  * IONOS:  /usr/bin/php8.4-cli cli/migrate.php      Docker: docker exec -u www-data php-apache php …/cli/migrate.php
  * El usuario de la base de datos necesita permiso CREATE/ALTER/INDEX/REFERENCES sobre su base.
+ *
+ * Si falta APP_KEY en el .env (clave que cifra los secretos 2FA), la genera y la añade; nunca la imprime ni la
+ * sustituye: cambiarla invalidaría el 2FA de todos los usuarios.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -24,6 +27,7 @@ $base = dirname(__DIR__);
 require_once $base . '/vendor/autoload.php';
 
 use App\AppConfig;
+use App\Crypto;
 use App\Database;
 use App\Env;
 
@@ -94,3 +98,12 @@ foreach ($files as $file) {
 }
 
 echo $done === 0 ? "La base de datos ya está al día.\n" : "{$done} migración(es) aplicada(s).\n";
+
+if (!Env::has('APP_KEY')) {
+    try {
+        Env::appendMissing(['APP_KEY' => Crypto::generateKey()]);
+        echo "APP_KEY generada y añadida al .env (cifra los secretos 2FA; no la cambies ni la pierdas).\n";
+    } catch (Throwable $e) {
+        fail('no se pudo escribir APP_KEY en el .env: ' . $e->getMessage());
+    }
+}

@@ -48,14 +48,32 @@ CREATE TABLE IF NOT EXISTS app_log (
     KEY idx_log_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- role: admin | editor | viewer (App\Access). theme: NULL = el de Configuración.
+-- totp_secret cifrado con APP_KEY (App\Crypto); totp_last_step = último paso TOTP aceptado (anti-repetición).
 CREATE TABLE IF NOT EXISTS users (
-    id            CHAR(8)      NOT NULL,
-    username      VARCHAR(32)  NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at    DATETIME     NOT NULL,
-    last_login_at DATETIME     NULL,
+    id              CHAR(8)                         NOT NULL,
+    username        VARCHAR(32)                     NOT NULL,
+    password_hash   VARCHAR(255)                    NOT NULL,
+    role            ENUM('admin','editor','viewer') NOT NULL DEFAULT 'viewer',
+    theme           VARCHAR(5)                      NULL,
+    created_at      DATETIME                        NOT NULL,
+    last_login_at   DATETIME                        NULL,
+    totp_secret     VARCHAR(255)                    NULL,
+    totp_enabled_at DATETIME                        NULL,
+    totp_last_step  BIGINT UNSIGNED                 NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Códigos de recuperación del 2FA: un solo uso, solo el sha256 (se muestran una vez al generarlos)
+CREATE TABLE IF NOT EXISTS user_recovery_codes (
+    id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id    CHAR(8)         NOT NULL,
+    code_hash  CHAR(64)        NOT NULL,
+    used_at    DATETIME        NULL,
+    PRIMARY KEY (id),
+    KEY idx_recovery_user (user_id, code_hash),
+    CONSTRAINT fk_recovery_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Tokens «Recordarme»: solo el sha256 del validator; la cookie es selector:validator

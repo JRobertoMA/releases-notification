@@ -22,6 +22,7 @@ require __DIR__ . '/../../includes/bootstrap.php';
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 
+require_permission('settings');
 require_post_csrf();
 
 $action   = (string) ($_POST['action'] ?? '');

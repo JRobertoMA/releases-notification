@@ -2,7 +2,7 @@
 /**
  * Cabecera común. Variables que puede definir la página antes de incluirla:
  *   $page_title  título de la pestaña
- *   $active      clave de la navegación: repos | dashboard | history | logs | settings | users
+ *   $active      clave de la navegación: repos | dashboard | history | logs | settings | users | account
  *   $head_extra  HTML extra para <head> (p. ej. Chart.js, solo en las páginas que lo usan)
  *   $minimal     true = solo marca y tema, sin navegación ni menú de usuario (login.php)
  */
@@ -11,7 +11,8 @@ $active     ??= '';
 $head_extra ??= '';
 $minimal    ??= false;
 
-$theme = (string) cfg('THEME');
+// Tema: el del usuario (botón de la barra) o, si no eligió ninguno, el de Configuración
+$theme = (string) ((current_user()['theme'] ?? null) ?: cfg('THEME'));
 if (!in_array($theme, ['auto', 'light', 'dark'], true)) {
     $theme = 'auto';
 }
@@ -19,13 +20,15 @@ $asset_version = static fn (string $f) => $f . '?v=' . (@filemtime(BASE_DIR . '/
 $header_user   = $minimal ? null : current_user();
 $theme_icon    = ['auto' => 'circle-half', 'light' => 'sun-fill', 'dark' => 'moon-stars-fill'][$theme];
 
-$nav = [
+// Un admin que aún no activó el 2FA solo puede usar «Mi cuenta»: sin navegación que lleve a un aviso
+$setup_only = $header_user !== null && App\Access::needsTwoFactorSetup($header_user);
+$nav = $setup_only ? [] : array_filter([
     'repos'     => ['index.php',     'Repositorios',  'collection'],
     'dashboard' => ['dashboard.php', 'Dashboard',     'bar-chart-line'],
     'history'   => ['history.php',   'Historial',     'clock-history'],
     'logs'      => ['logs.php',      'Logs',          'journal-text'],
-    'settings'  => ['settings.php',  'Configuración', 'gear'],
-];
+    'settings'  => can('settings') ? ['settings.php', 'Configuración', 'gear'] : null,
+]);
 ?>
 <!DOCTYPE html>
 <html lang="es" data-theme-pref="<?= h($theme) ?>">
@@ -63,7 +66,11 @@ $nav = [
                         <?= icon('person-circle') ?><span class="d-none d-sm-inline ms-1"><?= h($header_user['username']) ?></span>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item<?= $active === 'users' ? ' active' : '' ?>" href="users.php"><?= icon('people', 'me-2') ?>Usuarios</a></li>
+                        <li><span class="dropdown-item-text small text-body-secondary"><?= h(App\Access::ROLES[$header_user['role'] ?? ''] ?? '') ?></span></li>
+                        <li><a class="dropdown-item<?= $active === 'account' ? ' active' : '' ?>" href="account.php"><?= icon('person-gear', 'me-2') ?>Mi cuenta</a></li>
+                        <?php if (!$setup_only && can('users')): ?>
+                            <li><a class="dropdown-item<?= $active === 'users' ? ' active' : '' ?>" href="users.php"><?= icon('people', 'me-2') ?>Usuarios</a></li>
+                        <?php endif; ?>
                         <li><hr class="dropdown-divider"></li>
                         <li>
                             <button type="button" class="dropdown-item" data-post-action="logout.php">

@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 
+require_permission('repos.write');
 require_post_csrf();
 
 $ids  = post_ids();

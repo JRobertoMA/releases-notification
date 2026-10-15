@@ -42,7 +42,7 @@ final class OciRegistry
     /**
      * Registros a los que la app puede hacer peticiones (SECURITY_AUDIT.md §10: sin lista blanca, un usuario
      * podía hacer que el servidor consultara cualquier host, incluidos los de la red interna).
-     * Se amplía con OCI_REGISTRIES en config.json (setAllowedHosts).
+     * Se amplía con OCI_REGISTRIES de la tabla settings, editable en Configuración (setAllowedHosts).
      */
     public const DEFAULT_ALLOWED_HOSTS = [
         'ghcr.io', 'lscr.io', 'quay.io', 'registry.gitlab.com', 'public.ecr.aws', 'gcr.io', 'mcr.microsoft.com',
@@ -52,7 +52,7 @@ final class OciRegistry
     /** Redirecciones: pocas y solo HTTPS (los blobs de ghcr.io redirigen a su CDN). */
     private const REDIRECTS = ['max' => 3, 'protocols' => ['https'], 'strict' => false, 'referer' => false];
 
-    /** @param list<string>|null $hosts  los de config.json (OCI_REGISTRIES); se suman a los de por defecto */
+    /** @param list<string>|null $hosts  los de Configuración (OCI_REGISTRIES); se suman a los de por defecto */
     public static function setAllowedHosts(?array $hosts): void
     {
         $extra = array_map(fn ($h) => strtolower(trim((string) $h)), $hosts ?? []);

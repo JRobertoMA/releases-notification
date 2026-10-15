@@ -7,6 +7,8 @@ require __DIR__ . '/../includes/bootstrap.php';
 use App\Repo;
 use App\RepoStore;
 
+require_permission('repos.write');
+
 $id = (string) ($_GET['id'] ?? '');
 if (!RepoStore::isValidId($id) || ($repo = repo_store()->find($id)) === null) {
     redirect_with('Repositorio no encontrado.', 'danger');

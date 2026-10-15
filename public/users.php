@@ -3,17 +3,22 @@
 declare(strict_types=1);
 
 /**
- * Gestión de usuarios. Todos tienen los mismos permisos: cualquiera puede añadir usuarios, cambiar
- * contraseñas o eliminar a otro (nunca a sí mismo ni al último). Cambiar la propia contraseña exige la actual.
+ * Gestión de usuarios (solo administradores). La propia contraseña y el propio 2FA se gestionan en «Mi cuenta».
+ * Nunca puede quedar el sistema sin un administrador (Users::setRole/delete lo impiden).
  *
- * POST action=create   username, password, password_confirm
- * POST action=password id, password, password_confirm [, current_password si es la propia]
- * POST action=delete   id
+ * POST action=create     username, password, password_confirm, role
+ * POST action=password   id, password, password_confirm   (de otro usuario; cierra sus sesiones)
+ * POST action=role       id, role
+ * POST action=2fa_reset  id   (móvil perdido: entrará solo con la contraseña; si es admin, tendrá que reactivarlo)
+ * POST action=delete     id
  */
 
 require __DIR__ . '/../includes/bootstrap.php';
 
+use App\Access;
 use App\Users;
+
+require_permission('users');
 
 $me = current_user();
 
@@ -31,26 +36,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($password !== $confirm) {
                     throw new InvalidArgumentException('Las contraseñas no coinciden.');
                 }
-                $user = users()->create((string) ($_POST['username'] ?? ''), $password);
-                redirect_with("Usuario «{$user['username']}» creado.", 'success', $back);
+                $user = users()->create((string) ($_POST['username'] ?? ''), $password, (string) ($_POST['role'] ?? ''));
+                redirect_with("Usuario «{$user['username']}» creado como " . Access::ROLES[$user['role']]
+                    . ($user['role'] === 'admin' ? '. Al entrar tendrá que activar la verificación en dos pasos.' : '.'), 'success', $back);
 
             case 'password':
                 $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
+                if ($target['id'] === $me['id']) {
+                    redirect('account.php');
+                }
                 if ($password !== $confirm) {
                     throw new InvalidArgumentException('Las contraseñas no coinciden.');
                 }
-                $self = $target['id'] === $me['id'];
-                if ($self && users()->verify($me['username'], (string) ($_POST['current_password'] ?? '')) === null) {
-                    throw new InvalidArgumentException('La contraseña actual no es correcta.');
-                }
                 users()->setPassword($target['id'], $password);
-                if ($self) {
-                    // La huella de la contraseña cambió: se renueva la sesión propia para no cerrarla
-                    auth()->login(users()->find($target['id']), false);
+                redirect_with("Contraseña de «{$target['username']}» cambiada; sus sesiones abiertas se han cerrado.", 'success', $back);
+
+            case 'role':
+                $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
+                $role   = (string) ($_POST['role'] ?? '');
+                users()->setRole($target['id'], $role);
+                if ($target['id'] === $me['id'] && $role !== 'admin') {
+                    redirect_with('Ya no eres administrador.', 'info', 'index.php');
                 }
-                redirect_with($self
-                    ? 'Contraseña cambiada. Se cerraron las sesiones «Recordarme» de otros navegadores.'
-                    : "Contraseña de «{$target['username']}» cambiada; sus sesiones abiertas se han cerrado.", 'success', $back);
+                redirect_with("«{$target['username']}» ahora es " . Access::ROLES[$role]
+                    . ($role === 'admin' && empty($target['totp_enabled_at']) ? '. En su próximo acceso tendrá que activar la verificación en dos pasos.' : '.'), 'success', $back);
+
+            case '2fa_reset':
+                $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
+                if ($target['id'] === $me['id']) {
+                    throw new InvalidArgumentException('Tu propio 2FA se gestiona en «Mi cuenta».');
+                }
+                users()->disableTotp($target['id']);
+                redirect_with("Verificación en dos pasos de «{$target['username']}» restablecida.", 'success', $back);
 
             case 'delete':
                 $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
@@ -70,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $all = array_map([Users::class, 'publicData'], users()->all());
 usort($all, fn ($a, $b) => strcmp($a['username'], $b['username']));
+$admins = count(array_filter($all, fn ($u) => $u['role'] === 'admin'));
 
 $page_title = 'Usuarios';
 $active     = 'users';
@@ -80,33 +98,88 @@ require __DIR__ . '/../includes/header.php';
 <div class="row g-3">
     <div class="col-12 col-lg-7">
         <div class="card">
-            <div class="card-header"><?= count($all) ?> usuario(s) · todos con los mismos permisos</div>
+            <div class="card-header"><?= count($all) ?> usuario(s)</div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead>
                         <tr>
                             <th>Usuario</th>
-                            <th>Alta</th>
+                            <th>Rol</th>
+                            <th>2FA</th>
+                            <th class="d-none d-xl-table-cell">Alta</th>
                             <th>Último acceso</th>
                             <th class="text-end"><span class="visually-hidden">Acciones</span></th>
                         </tr>
                     </thead>
                     <tbody>
-                    <?php foreach ($all as $u): $self = $u['id'] === $me['id']; ?>
+                    <?php foreach ($all as $u):
+                        $self       = $u['id'] === $me['id'];
+                        $last_admin = $u['role'] === 'admin' && $admins <= 1;
+                    ?>
                         <tr>
                             <td class="text-break">
                                 <?= icon('person-circle', 'text-body-secondary me-1') ?><?= h($u['username']) ?>
                                 <?php if ($self): ?><span class="badge text-bg-primary ms-1">tú</span><?php endif; ?>
                             </td>
-                            <td class="meta"><?= time_tag($u['created_at'], '—', true) ?></td>
+                            <td>
+                                <div class="dropdown">
+                                    <button type="button" class="btn btn-sm p-0 border-0 dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                                            data-bs-popper-config='{"strategy":"fixed"}' aria-label="Cambiar el rol de <?= h($u['username']) ?>">
+                                        <?= Access::badge($u['role']) ?>
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <?php foreach (Access::ROLES as $role => $label): ?>
+                                            <li>
+                                                <?php if ($role === $u['role']): ?>
+                                                    <span class="dropdown-item active" aria-current="true"><?= h($label) ?></span>
+                                                <?php elseif ($last_admin): ?>
+                                                    <span class="dropdown-item disabled" title="Es el único administrador"><?= h($label) ?></span>
+                                                <?php else: ?>
+                                                    <button type="button" class="dropdown-item"
+                                                            data-post-action="users.php" data-post-params="<?= h(json_encode(['action' => 'role', 'id' => $u['id'], 'role' => $role])) ?>"><?= h($label) ?></button>
+                                                <?php endif; ?>
+                                            </li>
+                                        <?php endforeach; ?>
+                                        <?php if ($last_admin): ?>
+                                            <li><span class="dropdown-item-text small text-body-secondary">Único administrador: nombra antes a otro.</span></li>
+                                        <?php endif; ?>
+                                    </ul>
+                                </div>
+                            </td>
+                            <td>
+                                <?php if (!empty($u['totp_enabled_at'])): ?>
+                                    <span class="text-success" title="Activa desde <?= h($u['totp_enabled_at']) ?>"><?= icon('shield-check') ?><span class="visually-hidden">Activa</span></span>
+                                <?php elseif ($u['role'] === 'admin'): ?>
+                                    <span class="badge text-bg-warning" title="Obligatoria para administradores: se le pedirá al entrar">Pendiente</span>
+                                <?php else: ?>
+                                    <span class="text-body-secondary" title="No activada"><?= icon('dash') ?><span class="visually-hidden">No activada</span></span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="meta d-none d-xl-table-cell"><?= time_tag($u['created_at'], '—', true) ?></td>
                             <td class="meta"><?= time_tag($u['last_login_at'], 'nunca') ?></td>
                             <td class="text-end text-nowrap">
-                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        data-bs-toggle="modal" data-bs-target="#passwordModal"
-                                        data-user-id="<?= h($u['id']) ?>" data-username="<?= h($u['username']) ?>" data-self="<?= $self ? '1' : '0' ?>">
-                                    <?= icon('key') ?><span class="d-none d-sm-inline ms-1">Contraseña</span>
-                                </button>
-                                <?php if (!$self && count($all) > 1): ?>
+                                <?php if ($self): ?>
+                                    <a href="account.php" class="btn btn-sm btn-outline-secondary"><?= icon('person-gear') ?><span class="d-none d-sm-inline ms-1">Mi cuenta</span></a>
+                                <?php else: ?>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            data-bs-toggle="modal" data-bs-target="#passwordModal"
+                                            data-user-id="<?= h($u['id']) ?>" data-username="<?= h($u['username']) ?>"
+                                            aria-label="Cambiar la contraseña de <?= h($u['username']) ?>">
+                                        <?= icon('key') ?><span class="d-none d-sm-inline ms-1">Contraseña</span>
+                                    </button>
+                                <?php endif; ?>
+                                <?php if (!$self && !empty($u['totp_enabled_at'])): ?>
+                                    <button type="button" class="btn btn-sm btn-outline-warning"
+                                            data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                            data-action="users.php" data-params="<?= h(json_encode(['action' => '2fa_reset', 'id' => $u['id']])) ?>"
+                                            data-title="Restablecer verificación en dos pasos"
+                                            data-body="¿Quitar el 2FA de «<?= h($u['username']) ?>»? Úsalo si perdió el móvil y sus códigos de recuperación. Podrá entrar solo con la contraseña<?= $u['role'] === 'admin' ? ' y tendrá que volver a activarlo' : '' ?>."
+                                            data-variant="warning" data-confirm-label="Restablecer"
+                                            aria-label="Restablecer el 2FA de <?= h($u['username']) ?>">
+                                        <?= icon('shield-x') ?>
+                                    </button>
+                                <?php endif; ?>
+                                <?php if (!$self && count($all) > 1 && !$last_admin): ?>
                                     <button type="button" class="btn btn-sm btn-outline-danger"
                                             data-bs-toggle="modal" data-bs-target="#confirmModal"
                                             data-action="users.php" data-params="<?= h(json_encode(['action' => 'delete', 'id' => $u['id']])) ?>"
@@ -147,6 +220,18 @@ require __DIR__ . '/../includes/header.php';
                     <label for="new_password_confirm" class="form-label">Repite la contraseña</label>
                     <input type="password" class="form-control" id="new_password_confirm" name="password_confirm" required minlength="10" autocomplete="new-password">
                 </div>
+                <div class="mb-3">
+                    <label for="new_role" class="form-label">Rol</label>
+                    <select class="form-select" id="new_role" name="role" aria-describedby="new_role_help">
+                        <?php foreach (Access::ROLES as $role => $label): ?>
+                            <option value="<?= $role ?>" <?= $role === 'viewer' ? 'selected' : '' ?>><?= h($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div id="new_role_help" class="form-text">
+                        <strong>Lector</strong>: solo ver. <strong>Editor</strong>: además añadir, editar, verificar y borrar repos.
+                        <strong>Administrador</strong>: además usuarios y Configuración; 2FA obligatorio.
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-primary"><?= icon('person-plus', 'me-1') ?> Crear usuario</button>
             </div>
         </form>
@@ -164,14 +249,10 @@ require __DIR__ . '/../includes/header.php';
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3" id="pw_current_block">
-                    <label for="pw_current" class="form-label">Contraseña actual</label>
-                    <input type="password" class="form-control" id="pw_current" name="current_password" autocomplete="current-password">
-                </div>
                 <div class="mb-3">
                     <label for="pw_new" class="form-label">Nueva contraseña</label>
                     <input type="password" class="form-control" id="pw_new" name="password" required minlength="10" autocomplete="new-password">
-                    <div class="form-text">Al menos 10 caracteres. Se cerrarán las sesiones «Recordarme» de ese usuario.</div>
+                    <div class="form-text">Al menos 10 caracteres. Se cerrarán todas sus sesiones abiertas.</div>
                 </div>
                 <div class="mb-1">
                     <label for="pw_confirm" class="form-label">Repite la nueva contraseña</label>
@@ -191,20 +272,12 @@ require __DIR__ . '/../includes/header.php';
 (function () {
     var modal = document.getElementById('passwordModal');
     modal.addEventListener('show.bs.modal', function (e) {
-        var btn  = e.relatedTarget;
-        var self = btn.dataset.self === '1';
+        var btn = e.relatedTarget;
         document.getElementById('pw_user_id').value = btn.dataset.userId;
-        document.getElementById('passwordModalTitle').textContent = self
-            ? 'Cambiar mi contraseña'
-            : 'Cambiar la contraseña de «' + btn.dataset.username + '»';
-        document.getElementById('pw_current_block').hidden = !self;
-        document.getElementById('pw_current').required = self;
+        document.getElementById('passwordModalTitle').textContent = 'Cambiar la contraseña de «' + btn.dataset.username + '»';
         modal.querySelectorAll('input[type=password]').forEach(function (i) { i.value = ''; });
     });
-    modal.addEventListener('shown.bs.modal', function () {
-        var self = !document.getElementById('pw_current_block').hidden;
-        document.getElementById(self ? 'pw_current' : 'pw_new').focus();
-    });
+    modal.addEventListener('shown.bs.modal', function () { document.getElementById('pw_new').focus(); });
 })();
 </script>
 </body>

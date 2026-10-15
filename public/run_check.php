@@ -17,6 +17,7 @@ require __DIR__ . '/../includes/bootstrap.php';
 
 use App\Jobs;
 
+require_permission('repos.check');
 require_post_csrf();
 
 $php = php_cli_binary();

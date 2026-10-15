@@ -6,6 +6,7 @@ require __DIR__ . '/../includes/bootstrap.php';
 
 use App\RepoStore;
 
+require_permission('repos.write');
 require_post_csrf();
 
 $ids = post_ids();

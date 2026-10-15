@@ -6,10 +6,15 @@ declare(strict_types=1);
  * Gestión de usuarios por consola. Es la única forma de crear el primer usuario: la web ya no ofrece
  * «Crear administrador», porque en internet cualquiera podría llegar antes (SECURITY_AUDIT.md §2).
  *
- *   php cli/user.php create <usuario> [--password-stdin]
+ *   php cli/user.php create <usuario> [--role=admin|editor|viewer] [--password-stdin]
  *   php cli/user.php password <usuario> [--password-stdin]
+ *   php cli/user.php role <usuario> <admin|editor|viewer>
+ *   php cli/user.php 2fa-reset <usuario>      quita su 2FA (móvil perdido o APP_KEY cambiada)
  *   php cli/user.php delete <usuario>
  *   php cli/user.php list
+ *
+ * El primer usuario siempre es admin. Sin --role, los siguientes se crean como lector (viewer).
+ * Un admin debe activar el 2FA en «Mi cuenta» en su primer acceso.
  *
  * IONOS:  /usr/bin/php8.4-cli cli/user.php create <usuario>          (nunca `php`: es PHP 4.4)
  * Docker: docker exec -it -u www-data php-apache php /var/www/html/telegram-notification/cli/user.php create <usuario>
@@ -22,13 +27,14 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
-// Todo lo que cree PHP (config.json, data/, sesiones, JSON de datos) nace solo para el propietario: 600/700.
+// Todo lo que cree PHP (data/, sesiones, el lock del worker) nace solo para el propietario: 600/700.
 // En IONOS el checkout queda legible por «otros» y el servidor es compartido (SECURITY_AUDIT.md, v1.0.1).
 umask(0077);
 
 $base = dirname(__DIR__);
 require_once $base . '/vendor/autoload.php';
 
+use App\Access;
 use App\AppConfig;
 use App\Database;
 use App\Env;
@@ -49,7 +55,13 @@ try {
 
 $args      = array_slice($argv, 1);
 $fromStdin = in_array('--password-stdin', $args, true);
-$args      = array_values(array_filter($args, fn ($a) => $a !== '--password-stdin'));
+$roleOpt   = null;
+foreach ($args as $a) {
+    if (str_starts_with($a, '--role=')) {
+        $roleOpt = substr($a, 7);
+    }
+}
+$args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
 [$command, $username] = [$args[0] ?? '', $args[1] ?? ''];
 
 $users = new Users();
@@ -99,12 +111,43 @@ switch ($command) {
         if (($e = Users::usernameError($username)) !== null) {
             fail($e);
         }
+        if ($roleOpt !== null && !Access::isValidRole($roleOpt)) {
+            fail('Rol no válido: usa admin, editor o viewer.');
+        }
         try {
-            $user = $users->create($username, new_password($fromStdin));
+            $user = $users->create($username, new_password($fromStdin), $roleOpt ?? 'viewer');
         } catch (InvalidArgumentException $e) {
             fail($e->getMessage());
         }
-        echo "Usuario «{$user['username']}» creado. Ya puedes iniciar sesión en la web.\n";
+        echo "Usuario «{$user['username']}» creado como " . Access::ROLES[$user['role']] . ". Ya puede iniciar sesión en la web.\n";
+        if ($user['role'] === 'admin') {
+            echo "Al entrar se le pedirá activar la verificación en dos pasos (obligatoria para administradores).\n";
+        }
+        break;
+
+    case 'role':
+        $user = $users->findByUsername($username) ?? fail("No existe el usuario «{$username}».");
+        $role = $args[2] ?? '';
+        if (!Access::isValidRole($role)) {
+            fail('Uso: php cli/user.php role <usuario> <admin|editor|viewer>');
+        }
+        try {
+            $users->setRole($user['id'], $role);
+        } catch (InvalidArgumentException $e) {
+            fail($e->getMessage());
+        }
+        echo "«{$user['username']}» ahora es " . Access::ROLES[$role] . ".\n";
+        break;
+
+    case '2fa-reset':
+        $user = $users->findByUsername($username) ?? fail("No existe el usuario «{$username}».");
+        if (empty($user['totp_enabled_at'])) {
+            echo "«{$user['username']}» no tiene la verificación en dos pasos activada.\n";
+            break;
+        }
+        $users->disableTotp($user['id']);
+        echo "Verificación en dos pasos de «{$user['username']}» restablecida. Entrará solo con la contraseña"
+            . ($user['role'] === 'admin' ? " y tendrá que volver a activarla (obligatoria para administradores).\n" : ".\n");
         break;
 
     case 'password':
@@ -134,11 +177,16 @@ switch ($command) {
             break;
         }
         foreach ($all as $u) {
-            printf("%-24s alta %s · último acceso %s\n", $u['username'], $u['created_at'] ?? '—', $u['last_login_at'] ?? 'nunca');
+            printf("%-24s %-14s 2FA %-3s · alta %s · último acceso %s\n", $u['username'], Access::ROLES[$u['role']] ?? $u['role'],
+                empty($u['totp_enabled_at']) ? 'no' : 'sí', $u['created_at'] ?? '—', $u['last_login_at'] ?? 'nunca');
         }
         break;
 
     default:
-        fwrite(STDERR, "Uso: php cli/user.php create|password|delete <usuario> [--password-stdin]\n     php cli/user.php list\n");
+        fwrite(STDERR, "Uso: php cli/user.php create <usuario> [--role=admin|editor|viewer] [--password-stdin]\n"
+            . "     php cli/user.php password <usuario> [--password-stdin]\n"
+            . "     php cli/user.php role <usuario> <admin|editor|viewer>\n"
+            . "     php cli/user.php 2fa-reset|delete <usuario>\n"
+            . "     php cli/user.php list\n");
         exit(1);
 }

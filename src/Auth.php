@@ -11,11 +11,15 @@ namespace App;
  * - «Recordarme» añade la cookie tn_remember (30 días), validada y rotada por Users::consumeToken().
  * - En cada petición se comprueba que el usuario sigue existiendo y que su contraseña no ha cambiado
  *   (huella guardada en la sesión): borrar un usuario o cambiarle la contraseña cierra sus sesiones abiertas.
+ * - Con 2FA (v1.2.0) el login tiene dos pasos: la contraseña correcta deja una sesión «pendiente»
+ *   ($_SESSION['auth_pending'], PENDING_TTL segundos) que no da acceso a nada; login_2fa.php pide el código y
+ *   solo entonces llama a login(). «Recordarme» se emite al completar el segundo paso.
  */
 final class Auth
 {
-    public const IDLE   = 7200;
-    public const COOKIE = 'tn_remember';
+    public const IDLE        = 7200;
+    public const COOKIE      = 'tn_remember';
+    public const PENDING_TTL = 300;
 
     public function __construct(
         private readonly Users $users,
@@ -23,7 +27,7 @@ final class Auth
     ) {
     }
 
-    /** Usuario de la sesión actual (validado contra users.json), o null. */
+    /** Usuario de la sesión actual (validado contra la base de datos), o null. */
     public function user(): ?array
     {
         $session = $_SESSION['auth'] ?? null;
@@ -69,6 +73,45 @@ final class Auth
         }
     }
 
+    /** Primer paso superado (contraseña correcta, 2FA activo): falta el código. */
+    public function beginSecondFactor(array $user, bool $remember, string $next): void
+    {
+        session_regenerate_id(true);
+        unset($_SESSION['auth']);
+        $_SESSION['auth_pending'] = [
+            'id'       => $user['id'],
+            'fp'       => Users::passwordFingerprint($user),
+            'remember' => $remember,
+            'next'     => $next,
+            'started'  => time(),
+        ];
+    }
+
+    /**
+     * Usuario con el segundo paso pendiente (y aún vigente), o null.
+     *
+     * @return array{user:array, remember:bool, next:string}|null
+     */
+    public function pendingSecondFactor(): ?array
+    {
+        $p = $_SESSION['auth_pending'] ?? null;
+        if (!is_array($p) || time() - (int) ($p['started'] ?? 0) > self::PENDING_TTL) {
+            unset($_SESSION['auth_pending']);
+            return null;
+        }
+        $user = $this->users->find((string) ($p['id'] ?? ''));
+        if ($user === null || Users::passwordFingerprint($user) !== ($p['fp'] ?? null) || !Users::hasTotp($user)) {
+            unset($_SESSION['auth_pending']);
+            return null;
+        }
+        return ['user' => $user, 'remember' => (bool) $p['remember'], 'next' => (string) $p['next']];
+    }
+
+    public function cancelSecondFactor(): void
+    {
+        unset($_SESSION['auth_pending']);
+    }
+
     public function logout(): void
     {
         $cookie = $_COOKIE[self::COOKIE] ?? '';
@@ -84,7 +127,7 @@ final class Auth
     private function startSession(array $user): void
     {
         session_regenerate_id(true);
-        unset($_SESSION['csrf_token']);   // token CSRF nuevo tras iniciar sesión
+        unset($_SESSION['csrf_token'], $_SESSION['auth_pending']);   // token CSRF nuevo tras iniciar sesión
         $_SESSION['auth'] = [
             'id'            => $user['id'],
             'username'      => $user['username'],

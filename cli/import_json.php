@@ -12,7 +12,7 @@ declare(strict_types=1);
  *   repositories.json      → repos (mismos ids y orden)
  *   release_history.json   → release_history
  *   app_log.json           → app_log
- *   data/users.json        → users + user_tokens (los «Recordarme» vigentes siguen valiendo)
+ *   data/users.json        → users (como admin) + user_tokens (los «Recordarme» vigentes siguen valiendo)
  *   data/last_run.json     → app_state.last_run
  *   config.json            → secretos y entorno al .env (solo si faltan allí; no se imprimen),
  *                            el resto a la tabla settings
@@ -138,6 +138,7 @@ Database::transaction(function () use ($data, $force, &$counts) {
             'id'            => $u['id'],
             'username'      => $u['username'],
             'password_hash' => $u['password_hash'],
+            'role'          => 'admin',   // hasta la 1.1.x todos los usuarios tenían todos los permisos
             'created_at'    => datetime_or_null($u['created_at'] ?? null) ?? Database::now(),
             'last_login_at' => datetime_or_null($u['last_login_at'] ?? null),
         ]);
