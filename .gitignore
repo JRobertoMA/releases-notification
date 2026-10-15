@@ -7,7 +7,6 @@ app_log.json
 release_history.json
 
 # Dependencias de Composer
-composer.lock
 /vendor/
 
 # Logs
@@ -27,3 +26,8 @@ Thumbs.db
 # Archivos de backup
 *.bak
 *.backup
+
+# Datos de ejecución (usuarios, sesiones, jobs, bloqueos). Solo se versiona su .htaccess, para que la
+# carpeta y su protección lleguen con el clon.
+data/*
+!data/.htaccess

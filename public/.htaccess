@@ -1,0 +1,9 @@
+# Document root (IONOS: el subdominio apunta aquí). Solo contiene páginas, api/ y assets/.
+# Las cabeceras de seguridad y la redirección a HTTPS las pone includes/bootstrap.php.
+
+Options -Indexes
+DirectoryIndex index.php
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

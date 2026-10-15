@@ -1,0 +1,142 @@
+/* Estilos comunes del Notificador. Bootstrap 5.3 hace el resto. */
+
+/* Tamaño mínimo legible para metadatos (antes .75em, poco contraste en modo oscuro) */
+.meta {
+    font-size: .8125rem;
+    color: var(--bs-secondary-color);
+}
+
+/* Naranja para «Sin coincidencias»: distinto del amarillo de «pendiente de actualizar» */
+.text-bg-orange {
+    color: #000 !important;
+    background-color: var(--bs-orange) !important;
+}
+.bg-orange-subtle {
+    background-color: rgba(253, 126, 20, .15) !important;
+}
+.text-orange-emphasis {
+    color: #b35300 !important;
+}
+[data-bs-theme="dark"] .text-orange-emphasis {
+    color: #feb272 !important;
+}
+
+/* Overlay de carga para acciones síncronas */
+#loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    text-align: center;
+    color: #fff;
+    background: rgba(0, 0, 0, .55);
+}
+#loading-overlay[hidden] {
+    display: none;
+}
+
+/* Tarjetas de estado: también son filtros */
+.stat-card {
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform .1s ease, border-color .1s ease;
+}
+.stat-card:hover {
+    transform: translateY(-1px);
+}
+.stat-card:focus-visible {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: 2px;
+}
+.stat-card.active {
+    border-color: var(--bs-emphasis-color);
+}
+.stat-card .stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+/* Salud del cron y progreso de la verificación en segundo plano */
+.run-status .progress {
+    height: .5rem;
+}
+
+/* Icono + texto en una sola línea aunque la columna sea estrecha */
+.c-actions .btn,
+.bulk-bar .btn {
+    white-space: nowrap;
+}
+
+/* Barra de acciones masivas */
+.bulk-bar {
+    position: fixed;
+    bottom: 1rem;
+    left: 50%;
+    z-index: 1040;
+    width: max-content;
+    max-width: calc(100% - 2rem);
+    transform: translateX(-50%);
+}
+
+/* Widget de patrón de tag */
+.pw-chips {
+    max-height: 180px;
+    overflow-y: auto;
+}
+.pw-chips .btn {
+    font-family: var(--bs-font-monospace);
+}
+
+/* Scroll horizontal solo en escritorio; los menús de acciones usan strategy:fixed y no se recortan */
+@media (min-width: 768px) {
+    .repo-table-wrap {
+        overflow-x: auto;
+    }
+}
+
+/* Tabla de repos → tarjetas por debajo de 768 px (PROPUESTA_UX §2.2) */
+@media (max-width: 767.98px) {
+    .repo-table thead {
+        display: none;
+    }
+    .repo-table,
+    .repo-table tbody {
+        display: block;
+    }
+    .repo-table tbody tr {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: .35rem .6rem;
+        padding: .75rem;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .repo-table tbody td {
+        display: block;
+        padding: 0;
+        border: 0;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+    .repo-table td.c-select  { grid-column: 1; grid-row: 1; }
+    .repo-table td.c-name    { grid-column: 2; grid-row: 1; min-width: 0; }
+    .repo-table td.c-status  { grid-column: 3; grid-row: 1; text-align: end; }
+    .repo-table td.c-type    { grid-column: 2 / 4; }
+    .repo-table td.c-release { grid-column: 2 / 4; }
+    .repo-table td.c-checked { grid-column: 2; align-self: center; }
+    .repo-table td.c-actions { grid-column: 3; justify-self: end; }
+    .repo-table td.c-checked::before {
+        content: "Verificado ";
+    }
+    .repo-table tr.empty-row {
+        display: block;
+    }
+    .repo-table tr.empty-row td {
+        text-align: center;
+        padding: 1rem 0;
+    }
+}

@@ -2,7 +2,10 @@
     "TELEGRAM_BOT_TOKEN": "",
     "TELEGRAM_CHAT_ID": "",
     "GITHUB_TOKEN": "",
-    "CRON_SECRET": "",
     "REPOSITORIES_FILE": "repositories.json",
-    "THEME": "auto"
+    "THEME": "auto",
+    "CHECK_INTERVAL_HOURS": 6,
+    "PHP_CLI": "",
+    "APP_TIMEZONE": "America/Mexico_City",
+    "OCI_REGISTRIES": []
 }

@@ -1,0 +1,22 @@
+# Raíz del proyecto: nada de aquí se sirve directamente.
+#
+# - En IONOS el document root del subdominio es public/, así que este fichero solo actúa si alguien
+#   entra por el dominio principal (~ es htdocs): tudominio.com/notificador/...
+# - En el Docker local la app vive en /telegram-notification/ y todo se reescribe a public/.
+#
+# Lo que no está en public/ (config.json, data/, src/, includes/, vendor/, cli/, .git/…) acaba en
+# public/<ruta>, que no existe: 404.
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?!public/)(.*)$ public/$1 [L]
+</IfModule>
+
+# Sin mod_rewrite no hay forma segura de servir solo public/: se deniega todo
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>
+
+RedirectMatch 404 /\.git(/|$)
