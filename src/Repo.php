@@ -64,8 +64,11 @@ final class Repo
             return true;
         }
         if (!empty($repo['my_updated_at']) && !empty($repo['last_release_date'])) {
-            // Truncar a YYYY-MM-DD: "2026-04-24T15:30:00Z" > "2026-04-24" sería true aunque sea el mismo día
-            return substr($repo['last_release_date'], 0, 10) > $repo['my_updated_at'];
+            // Fecha del release en la zona de la app, no la de la API (UTC): un release de las 20:00 en México es
+            // «mañana» en UTC y quedaba pendiente aunque se sincronizara ese mismo día.
+            $ts = strtotime($repo['last_release_date']);
+            $released = $ts === false ? substr($repo['last_release_date'], 0, 10) : date('Y-m-d', $ts);
+            return $released > $repo['my_updated_at'];
         }
         return false;
     }

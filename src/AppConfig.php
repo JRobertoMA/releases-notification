@@ -15,7 +15,7 @@ namespace App;
 final class AppConfig
 {
     /** Claves que vienen del .env. */
-    public const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'GITHUB_TOKEN', 'PHP_CLI', 'APP_TIMEZONE', 'FORCE_HTTPS'];
+    public const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'GITHUB_TOKEN', 'PHP_CLI', 'APP_TIMEZONE', 'FORCE_HTTPS', 'REQUIRE_ADMIN_2FA'];
 
     /** Claves editables desde la web, con su valor por defecto. */
     public const SETTINGS = [
@@ -66,6 +66,17 @@ final class AppConfig
             return null;
         }
         return filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    /**
+     * REQUIRE_ADMIN_2FA del .env: el 2FA es obligatorio para administradores salvo REQUIRE_ADMIN_2FA=false
+     * (pensado solo para el Docker local). Es una clave explícita y no una detección de «localhost», porque la
+     * cabecera Host la manda el cliente. Si el valor no es un booleano válido, sigue siendo obligatorio.
+     */
+    public static function adminTwoFactorRequired(): bool
+    {
+        $v = Env::get('REQUIRE_ADMIN_2FA');
+        return $v === null || filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== false;
     }
 
     /** «termina en …abcd» para mostrar que un secreto existe sin revelarlo. */

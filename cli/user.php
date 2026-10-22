@@ -120,7 +120,7 @@ switch ($command) {
             fail($e->getMessage());
         }
         echo "Usuario «{$user['username']}» creado como " . Access::ROLES[$user['role']] . ". Ya puede iniciar sesión en la web.\n";
-        if ($user['role'] === 'admin') {
+        if (Access::needsTwoFactorSetup($user)) {
             echo "Al entrar se le pedirá activar la verificación en dos pasos (obligatoria para administradores).\n";
         }
         break;
@@ -147,7 +147,7 @@ switch ($command) {
         }
         $users->disableTotp($user['id']);
         echo "Verificación en dos pasos de «{$user['username']}» restablecida. Entrará solo con la contraseña"
-            . ($user['role'] === 'admin' ? " y tendrá que volver a activarla (obligatoria para administradores).\n" : ".\n");
+            . (Access::twoFactorMandatory($user) ? " y tendrá que volver a activarla (obligatoria para administradores).\n" : ".\n");
         break;
 
     case 'password':

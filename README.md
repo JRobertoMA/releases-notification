@@ -52,6 +52,7 @@ editando el fichero por SSH.
 | `PHP_CLI` | PHP de consola para «Verificar» y el cron (vacío = autodetectar) |
 | `APP_TIMEZONE` | zona horaria de las fechas (por defecto `America/Mexico_City`) |
 | `FORCE_HTTPS` | opcional; `false` desactiva la redirección automática a HTTPS |
+| `REQUIRE_ADMIN_2FA` | opcional, **solo en local**; `false` hace opcional el 2FA de los administradores |
 | `APP_KEY` | cifra los secretos de la verificación en dos pasos. **No la escribas**: la genera `cli/migrate.php`. Guarda una copia: si se pierde, hay que restablecer el 2FA de todos |
 
 Lo ajustable desde la web se guarda en la base de datos (**Configuración**, solo admin): el chat de Telegram
@@ -114,9 +115,9 @@ una sola vez:
 
 Mismo código en los dos sitios. Lo que cambia está en el `.env` de cada uno:
 
-| Clave | Docker local | IONOS |
+| Clave | Docker local | Hosting |
 |---|---|---|
-| `DB_HOST` | `mariadb` | el host del panel de IONOS |
+| `DB_HOST` | `mariadb` | el host del panel del Hosting |
 | `PHP_CLI` | vacío: se autodetecta | `/usr/bin/php8.5-cli` |
 | `APP_TIMEZONE` | `America/Mexico_City` | `America/Mexico_City` (el servidor está en New York) |
 | HTTPS | no se fuerza en `localhost` ni en IPs privadas | se fuerza solo (301 + HSTS) |
@@ -124,12 +125,12 @@ Mismo código en los dos sitios. Lo que cambia está en el `.env` de cada uno:
 
 ### Publicar una versión
 
-IONOS ejecuta siempre un **tag**, nunca `main`, así que producción solo cambia cuando tú lo decides:
+El hosting ejecuta siempre un **tag**, nunca `main`, así que producción solo cambia cuando tú lo decides:
 
 1. Actualiza `VERSION` y `CHANGELOG.md`.
 2. `git add -A && git commit`. Con `-A` se registran también los ficheros movidos o borrados.
 3. `git tag -a vX.Y.Z -m "…"` y `git push && git push --tags`. Si quieres, crea también un Release en GitHub.
-4. En IONOS: el paso 5 de arriba (incluye `cli/migrate.php` por si la versión trae migraciones).
+4. En el hosting: el paso 5 de arriba (incluye `cli/migrate.php` por si la versión trae migraciones).
 
 La versión que corre se ve en el pie de página.
 
@@ -145,7 +146,7 @@ La versión que corre se ve en el pie de página.
   php cli/user.php delete <usuario>
   php cli/user.php list
   ```
-  En IONOS, `php` es `/usr/bin/php8.5-cli`; en Docker, `docker exec -it -u www-data php-apache php …`.
+  En el hosting, `php` es `/usr/bin/php8.5-cli`; en Docker, `docker exec -it -u www-data php-apache php …`.
 - **Roles:**
 
   | Rol | Puede |
@@ -179,7 +180,7 @@ Se actualiza mientras cambias el intervalo y explica a qué horas se ejecutará.
 **y** sustituye la línea de tu crontab: la app no puede editar el crontab del servidor. Ejemplos:
 
 ```cron
-# IONOS (crontab -e por SSH). MAILTO para recibir los errores por correo
+# (crontab -e por SSH). MAILTO para recibir los errores por correo
 MAILTO=<tu correo>
 0 */6 * * * /usr/bin/php8.5-cli -f /<ruta>/notificador/check_releases.php > /dev/null
 
@@ -329,7 +330,7 @@ Todo está en MariaDB. El esquema completo de referencia está en `database/data
 
 - **Tablas:** repos, historial de releases, log, usuarios y sus sesiones «Recordarme», intentos de login, verificaciones
   en segundo plano, ajustes de Configuración y estado.
-- **Copias de seguridad:** `mariadb-dump` de la base (en IONOS, además, las copias del panel) y el `.env`.
+- **Copias de seguridad:** `mariadb-dump` de la base y el `.env`.
 
 ## Permisos de Archivos (producción)
 
@@ -346,8 +347,8 @@ La app crea sus propios ficheros (sesiones, bloqueo del worker) ya privados. En 
 1. Configuración: el token del bot debe aparecer como «Definido» (`.env`) y el chat debe estar elegido; pulsa **Probar** y **Enviar prueba**
 2. Comprobar el cron: `crontab -l`
 3. Revisar logs en la pestaña **Logs** del dashboard
-4. Probar manualmente: `/usr/bin/php8.5-cli /ruta/check_releases.php` (IONOS) o el `docker exec` de arriba
-5. En IONOS, comprobar en Configuración → «PHP de consola» que no es el PHP 4.4
+4. Probar manualmente: `/usr/bin/php8.5-cli /ruta/check_releases.php` (hosting) o el `docker exec` de arriba
+5. En el hosting, comprobar en Configuración → «PHP de consola» que no es el PHP 4.4
 
 ### Un repositorio Docker siempre da error
 - Usar el botón **Verificar** individual del repo para aislar el problema

@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $user = users()->create((string) ($_POST['username'] ?? ''), $password, (string) ($_POST['role'] ?? ''));
                 redirect_with("Usuario «{$user['username']}» creado como " . Access::ROLES[$user['role']]
-                    . ($user['role'] === 'admin' ? '. Al entrar tendrá que activar la verificación en dos pasos.' : '.'), 'success', $back);
+                    . (Access::needsTwoFactorSetup($user) ? '. Al entrar tendrá que activar la verificación en dos pasos.' : '.'), 'success', $back);
 
             case 'password':
                 $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     redirect_with('Ya no eres administrador.', 'info', 'index.php');
                 }
                 redirect_with("«{$target['username']}» ahora es " . Access::ROLES[$role]
-                    . ($role === 'admin' && empty($target['totp_enabled_at']) ? '. En su próximo acceso tendrá que activar la verificación en dos pasos.' : '.'), 'success', $back);
+                    . (Access::needsTwoFactorSetup(['role' => $role] + $target) ? '. En su próximo acceso tendrá que activar la verificación en dos pasos.' : '.'), 'success', $back);
 
             case '2fa_reset':
                 $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
@@ -149,7 +149,7 @@ require __DIR__ . '/../includes/header.php';
                             <td>
                                 <?php if (!empty($u['totp_enabled_at'])): ?>
                                     <span class="text-success" title="Activa desde <?= h($u['totp_enabled_at']) ?>"><?= icon('shield-check') ?><span class="visually-hidden">Activa</span></span>
-                                <?php elseif ($u['role'] === 'admin'): ?>
+                                <?php elseif (Access::needsTwoFactorSetup($u)): ?>
                                     <span class="badge text-bg-warning" title="Obligatoria para administradores: se le pedirá al entrar">Pendiente</span>
                                 <?php else: ?>
                                     <span class="text-body-secondary" title="No activada"><?= icon('dash') ?><span class="visually-hidden">No activada</span></span>
@@ -173,7 +173,7 @@ require __DIR__ . '/../includes/header.php';
                                             data-bs-toggle="modal" data-bs-target="#confirmModal"
                                             data-action="users.php" data-params="<?= h(json_encode(['action' => '2fa_reset', 'id' => $u['id']])) ?>"
                                             data-title="Restablecer verificación en dos pasos"
-                                            data-body="¿Quitar el 2FA de «<?= h($u['username']) ?>»? Úsalo si perdió el móvil y sus códigos de recuperación. Podrá entrar solo con la contraseña<?= $u['role'] === 'admin' ? ' y tendrá que volver a activarlo' : '' ?>."
+                                            data-body="¿Quitar el 2FA de «<?= h($u['username']) ?>»? Úsalo si perdió el móvil y sus códigos de recuperación. Podrá entrar solo con la contraseña<?= Access::twoFactorMandatory($u) ? ' y tendrá que volver a activarlo' : '' ?>."
                                             data-variant="warning" data-confirm-label="Restablecer"
                                             aria-label="Restablecer el 2FA de <?= h($u['username']) ?>">
                                         <?= icon('shield-x') ?>

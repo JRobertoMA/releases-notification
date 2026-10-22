@@ -107,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect_with('Códigos de recuperación nuevos generados; los anteriores ya no valen.', 'success', $back . '#twofa');
 
             case '2fa_disable':
-                if (($me['role'] ?? '') === 'admin') {
+                if (Access::twoFactorMandatory($me)) {
                     throw new InvalidArgumentException('Los administradores no pueden desactivarla: es obligatoria. Si cambiaste de móvil, usa «Configurar en otro móvil».');
                 }
                 check_current_factor($me, $code);
@@ -251,12 +251,12 @@ require __DIR__ . '/../includes/header.php';
                     <div class="col-12 col-sm-7 d-flex flex-wrap gap-2">
                         <button type="submit" class="btn btn-outline-primary" name="action" value="2fa_codes"><?= icon('arrow-clockwise', 'me-1') ?>Nuevos códigos</button>
                         <button type="submit" class="btn btn-outline-primary" name="action" value="2fa_start"><?= icon('phone', 'me-1') ?>Configurar en otro móvil</button>
-                        <?php if (($me['role'] ?? '') !== 'admin'): ?>
+                        <?php if (!Access::twoFactorMandatory($me)): ?>
                             <button type="submit" class="btn btn-outline-danger" name="action" value="2fa_disable"><?= icon('shield-x', 'me-1') ?>Desactivar</button>
                         <?php endif; ?>
                     </div>
                 </form>
-                <?php if (($me['role'] ?? '') === 'admin'): ?>
+                <?php if (Access::twoFactorMandatory($me)): ?>
                     <p class="small text-body-secondary mt-3 mb-0">Como administrador no puedes desactivarla. Si pierdes el móvil y los códigos, otro administrador puede restablecerla en Usuarios, o por consola: <code>cli/user.php 2fa-reset <?= h($me['username']) ?></code>.</p>
                 <?php endif; ?>
             <?php endif; ?>

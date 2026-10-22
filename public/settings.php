@@ -151,6 +151,18 @@ require __DIR__ . '/../includes/header.php';
                         <td></td>
                     </tr>
                     <tr>
+                        <th scope="row" class="fw-normal">2FA de administradores<div class="meta font-monospace">REQUIRE_ADMIN_2FA</div></th>
+                        <td>
+                            <?php if (AppConfig::adminTwoFactorRequired()): ?>
+                                Obligatorio
+                            <?php else: ?>
+                                <span class="text-warning-emphasis"><?= icon('exclamation-triangle-fill', 'me-1') ?>Opcional</span>
+                                <span class="meta">· solo para el Docker local; en IONOS quita REQUIRE_ADMIN_2FA del .env</span>
+                            <?php endif; ?>
+                        </td>
+                        <td></td>
+                    </tr>
+                    <tr>
                         <th scope="row" class="fw-normal">Base de datos<div class="meta font-monospace">DB_*</div></th>
                         <td><span class="text-success"><?= icon('check-circle-fill', 'me-1') ?>Conectada</span> <span class="meta">· <?= h(Env::get('DB_NAME')) ?> en <?= h(Env::get('DB_HOST')) ?> · <?= h(preg_replace('/-.*/', '', $db_version)) ?></span></td>
                         <td></td>
