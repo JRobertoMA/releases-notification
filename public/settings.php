@@ -21,6 +21,7 @@ use App\AppConfig;
 use App\Database;
 use App\Env;
 use App\OciRegistry;
+use App\TelegramClient;
 
 require_permission('settings');
 
@@ -61,9 +62,15 @@ $php_detected = php_cli_binary();
 $php_env      = (string) cfg('PHP_CLI');
 $force_https  = AppConfig::forceHttps();
 $db_version   = (string) Database::value('SELECT VERSION()');
+$bot_mode     = TelegramClient::mode();
+$bot_url      = TelegramClient::backendUrl();
+// [clave, etiqueta, «termina en…», obligatorio, comprobación (botón y id del resultado), nota]
+// «Probar» va en la fila del modo activo: los dos usan la misma acción (TelegramClient::me()).
 $env_rows = [
-    ['TELEGRAM_BOT_TOKEN', 'Token del bot de Telegram', AppConfig::secretHint('TELEGRAM_BOT_TOKEN'), true, 'bot'],
-    ['GITHUB_TOKEN', 'GitHub Token (opcional)', AppConfig::secretHint('GITHUB_TOKEN'), false, 'github'],
+    ['BOT_PROJECT_KEY', 'Clave del proyecto en el bot', AppConfig::secretHint('BOT_PROJECT_KEY'), $bot_mode !== 'direct', $bot_mode === 'bot' ? 'bot' : null, null],
+    ['TELEGRAM_BOT_TOKEN', 'Token del bot (respaldo)', AppConfig::secretHint('TELEGRAM_BOT_TOKEN'), false, $bot_mode === 'direct' ? 'bot' : null,
+        $bot_mode === 'bot' && AppConfig::secretHint('TELEGRAM_BOT_TOKEN') !== null ? 'No se usa: los avisos van por el bot. Puedes borrarlo del .env.' : null],
+    ['GITHUB_TOKEN', 'GitHub Token (opcional)', AppConfig::secretHint('GITHUB_TOKEN'), false, 'github', null],
 ];
 
 /**
@@ -111,7 +118,21 @@ require __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
                 <tbody>
-                <?php foreach ($env_rows as [$key, $label, $hint, $required, $check]): ?>
+                    <tr>
+                        <th scope="row" class="fw-normal">Backend del bot<div class="meta font-monospace">BOT_BACKEND_URL</div></th>
+                        <td>
+                            <?php if ($bot_mode === 'bot'): ?>
+                                <code><?= h($bot_url) ?></code> <span class="meta">· proyecto <code><?= h(TelegramClient::project()) ?></code></span>
+                            <?php elseif ($bot_mode === 'direct'): ?>
+                                <span class="text-warning-emphasis"><?= icon('exclamation-triangle-fill', 'me-1') ?>Sin backend: envío directo con el token</span>
+                                <div class="meta">Con el webhook del bot activo, «Detectar chat» no funciona así. Añade <code>BOT_BACKEND_URL</code> y <code>BOT_PROJECT_KEY</code> al .env.</div>
+                            <?php else: ?>
+                                <span class="text-danger"><?= icon('x-circle-fill', 'me-1') ?>Falta en el .env</span>
+                            <?php endif; ?>
+                        </td>
+                        <td></td>
+                    </tr>
+                <?php foreach ($env_rows as [$key, $label, $hint, $required, $check, $note]): ?>
                     <tr>
                         <th scope="row" class="fw-normal"><?= h($label) ?><div class="meta font-monospace"><?= h($key) ?></div></th>
                         <td>
@@ -122,10 +143,11 @@ require __DIR__ . '/../includes/header.php';
                             <?php else: ?>
                                 <span class="text-body-secondary">No definido</span>
                             <?php endif; ?>
-                            <div id="<?= $check ?>_result" class="form-text" aria-live="polite"></div>
+                            <?php if ($note !== null): ?><div class="meta"><?= h($note) ?></div><?php endif; ?>
+                            <?php if ($check !== null): ?><div id="<?= $check ?>_result" class="form-text" aria-live="polite"></div><?php endif; ?>
                         </td>
                         <td class="text-end">
-                            <?php if ($hint !== null): ?>
+                            <?php if ($hint !== null && $check !== null): ?>
                                 <button type="button" class="btn btn-sm btn-outline-primary" data-check="<?= $check ?>"><?= icon('check2-circle', 'me-1') ?><?= $check === 'bot' ? 'Probar' : 'Comprobar' ?></button>
                             <?php endif; ?>
                         </td>
@@ -273,7 +295,7 @@ require __DIR__ . '/../includes/header.php';
             btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> ' + App.esc(label);
             App.post('api/settings_check.php', { action: action, chat_id: $('chat_id').value.trim() }).then(function (d) {
                 if (action === 'bot') {
-                    result(out, true, 'Token válido: <strong>@' + App.esc(d.username) + '</strong> (' + App.esc(d.name) + ')');
+                    result(out, true, (d.mode === 'bot' ? 'Conectado con el bot' : 'Token válido') + ': <strong>@' + App.esc(d.username) + '</strong> (' + App.esc(d.name) + ')');
                 } else if (action === 'test') {
                     result(out, true, 'Mensaje de prueba enviado. Revisa Telegram.');
                 } else if (action === 'github') {

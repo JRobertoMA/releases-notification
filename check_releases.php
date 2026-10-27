@@ -39,6 +39,7 @@ use App\Files;
 use App\OciRegistry;
 use App\RepoStore;
 use App\RunHealth;
+use App\TelegramClient;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
@@ -62,7 +63,6 @@ try {
 
 OciRegistry::setAllowedHosts((array) AppConfig::get('OCI_REGISTRIES'));
 
-$telegram_bot_token = (string) AppConfig::get('TELEGRAM_BOT_TOKEN');
 $telegram_chat_id   = (string) AppConfig::get('TELEGRAM_CHAT_ID');
 $github_token       = (string) AppConfig::get('GITHUB_TOKEN');
 
@@ -83,11 +83,11 @@ foreach ($argv ?? [] as $arg) {
 $store = new RepoStore();
 $jobs  = new Jobs();
 
-if (empty($telegram_bot_token) || empty($telegram_chat_id)) {
+if (TelegramClient::mode() === null || empty($telegram_chat_id)) {
     if ($job_id !== null) {
         $jobs->update($job_id, ['status' => 'failed', 'message' => 'Falta configurar el bot de Telegram.', 'finished_at' => date('c')]);
     }
-    die("Error: falta TELEGRAM_BOT_TOKEN en .env o el chat de Telegram en Configuración\n");
+    die("Error: faltan BOT_BACKEND_URL y BOT_PROJECT_KEY (o TELEGRAM_BOT_TOKEN) en .env, o el chat de Telegram en Configuración\n");
 }
 
 // --- Logging & History ---
@@ -103,20 +103,11 @@ function record_release($repo_name, $type, $tag, $url = null) {
 
 // --- API Functions ---
 
-function send_telegram_message($message, $token, $chat_id) {
-    $client = new Client();
-    $url = sprintf('https://api.telegram.org/bot%s/sendMessage', $token);
-    try {
-        $client->post($url, [
-            'json' => [
-                'chat_id'    => $chat_id,
-                'text'       => $message,
-                'parse_mode' => 'HTML'
-            ]
-        ]);
-    } catch (RequestException $e) {
-        // El mensaje de Guzzle incluye la URL, y la URL lleva el token del bot (SECURITY_AUDIT.md §14)
-        error_log('Telegram API Error: ' . str_replace($token, '<TOKEN>', $e->getMessage()));
+// A través del backend del bot (o directo con el token, de respaldo): App\TelegramClient
+function send_telegram_message($message, $chat_id, $repo_id) {
+    $r = TelegramClient::send($chat_id, $message, $repo_id);
+    if (!$r['ok']) {
+        log_entry('warning', 'No se pudo enviar el aviso por Telegram: ' . $r['error']);
     }
 }
 
@@ -175,7 +166,8 @@ function build_release_message(array $repo, array $outcome) {
     $tag        = $outcome['tag'];
     $type_emoji = ['github' => '🐙', 'gitlab' => '🦊', 'docker' => '🐋', 'oci' => '📦'];
     $emoji      = $type_emoji[$repo_type] ?? '📦';
-    $date_str   = !empty($outcome['date']) ? "\n📅 " . substr($outcome['date'], 0, 10) : '';
+    $date_ts    = !empty($outcome['date']) ? strtotime($outcome['date']) : false;
+    $date_str   = $date_ts !== false ? "\n📅 " . date('Y-m-d', $date_ts) : '';  // en APP_TIMEZONE, como Repo::isOutdated()
 
     $message = sprintf(
         "🔔 <b>Nuevo Release Detectado</b>\n──────────────────────\n%s <b>%s</b>\n📦 <b>%s</b>%s",
@@ -362,7 +354,7 @@ foreach ($targets as $snapshot) {
             log_entry('success', "Nuevo release para {$repo_name}: "
                 . ($outcome['tag_changed'] ? $outcome['tag'] : "{$outcome['tag']} (digest actualizado)"));
             record_release($repo_name, $repo_type, $outcome['tag'], $outcome['url']);
-            send_telegram_message(build_release_message($outcome['repo'], $outcome), $telegram_bot_token, $telegram_chat_id);
+            send_telegram_message(build_release_message($outcome['repo'], $outcome), $telegram_chat_id, $outcome['repo']['id']);
             break;
         default:
             log_entry('info', "Sin cambios en {$repo_name} ({$outcome['tag']})");

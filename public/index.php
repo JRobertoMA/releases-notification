@@ -7,6 +7,7 @@ require __DIR__ . '/../includes/bootstrap.php';
 use App\Jobs;
 use App\Repo;
 use App\RunHealth;
+use App\TelegramClient;
 
 $repos = repo_store()->all();
 usort($repos, fn ($a, $b) => Repo::priority($a) <=> Repo::priority($b));
@@ -30,9 +31,9 @@ ksort($all_tags, SORT_NATURAL | SORT_FLAG_CASE);
 // Salud del cron (PROPUESTA_UX §1.5)
 $interval = max(1, (int) cfg('CHECK_INTERVAL_HOURS'));
 
-// Sin token (.env) o sin chat (Configuración) no se puede avisar: se dice en la portada
+// Sin bot (.env) o sin chat (Configuración) no se puede avisar: se dice en la portada
 $missing_telegram = array_filter([
-    (string) cfg('TELEGRAM_BOT_TOKEN') === '' ? 'falta <code>TELEGRAM_BOT_TOKEN</code> en el <code>.env</code>' : null,
+    TelegramClient::mode() === null ? 'faltan <code>BOT_BACKEND_URL</code> y <code>BOT_PROJECT_KEY</code> en el <code>.env</code>' : null,
     (string) cfg('TELEGRAM_CHAT_ID') === '' ? 'falta elegir el chat en Configuración' : null,
 ]);
 $last_run = RunHealth::lastFullRun();

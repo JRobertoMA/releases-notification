@@ -10,6 +10,7 @@ declare(strict_types=1);
  * Antes de incluirlo, una página puede definir:
  *   $public_page = true            no exigir sesión (login.php, login_2fa.php)
  *   $allow_without_2fa = true      accesible para un admin que aún no activó el 2FA (account.php, logout.php…)
+ *   $stateless = true              sin sesión ni cookies (api/bot.php: lo llama el backend del bot, no un navegador)
  * Todo lo demás, páginas y api/, exige sesión iniciada (ver final del fichero). Los permisos por rol se
  * comprueban en cada página o endpoint con require_permission() (App\Access).
  *
@@ -123,7 +124,9 @@ session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
-session_start();
+if (empty($stateless)) {
+    session_start();
+}
 
 /** Página (o JSON en api/) de «falta configurar»: sin .env, sin base de datos o sin tablas. Nunca muestra secretos. */
 function setup_error(string $title, string $detail): never

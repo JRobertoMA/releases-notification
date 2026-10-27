@@ -15,7 +15,8 @@ namespace App;
 final class AppConfig
 {
     /** Claves que vienen del .env. */
-    public const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'GITHUB_TOKEN', 'PHP_CLI', 'APP_TIMEZONE', 'FORCE_HTTPS', 'REQUIRE_ADMIN_2FA'];
+    public const ENV_KEYS = ['BOT_BACKEND_URL', 'BOT_PROJECT', 'BOT_PROJECT_KEY', 'TELEGRAM_BOT_TOKEN', 'GITHUB_TOKEN', 'PHP_CLI',
+        'APP_TIMEZONE', 'FORCE_HTTPS', 'REQUIRE_ADMIN_2FA'];
 
     /** Claves editables desde la web, con su valor por defecto. */
     public const SETTINGS = [

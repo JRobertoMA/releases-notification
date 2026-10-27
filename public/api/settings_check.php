@@ -5,92 +5,51 @@ declare(strict_types=1);
 /**
  * POST api/settings_check.php — asistente de settings.php (PROPUESTA_UX §2.7).
  *
- *   action=bot     getMe: valida el token del bot y devuelve su @usuario
- *   action=chats   getUpdates: chats que han escrito al bot o donde lo añadieron (sin confirmar updates)
- *   action=test    sendMessage de prueba al chat indicado
+ *   action=bot     getMe: comprueba la conexión con Telegram y devuelve el @usuario del bot
+ *   action=chats   chats que han escrito al bot o donde lo añadieron
+ *   action=test    mensaje de prueba al chat indicado
  *   action=github  límite restante del token y si puede leer ghcr.io (read:packages)
  *
- * Los tokens salen SOLO del .env (la web no puede leerlos ni cambiarlos; lo que llegue en la petición se ignora).
- * El chat de prueba sí puede venir del formulario (aún sin guardar); si no, el guardado en Configuración.
+ * Telegram va por App\TelegramClient: a través del backend del bot (BOT_BACKEND_URL + BOT_PROJECT_KEY), o directo
+ * con TELEGRAM_BOT_TOKEN como respaldo. Con el backend, «chats» lee su registro: su webhook impide getUpdates (409).
+ * Los tokens y la clave salen SOLO del .env (la web no puede leerlos ni cambiarlos; lo que llegue en la petición se
+ * ignora). El chat de prueba sí puede venir del formulario (aún sin guardar); si no, el guardado en Configuración.
  * action=php comprueba el PHP_CLI del .env (o el autodetectado si está vacío).
- * Cuando exista el backend de bot compartido (PROPUESTA_BOT_TELEGRAM.md), «chats» debe leer su registro:
- * con un webhook o un poller activos getUpdates deja de estar disponible.
  */
 
 require __DIR__ . '/../../includes/bootstrap.php';
 
+use App\TelegramClient;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 
 require_permission('settings');
 require_post_csrf();
 
-$action   = (string) ($_POST['action'] ?? '');
-$botToken = (string) cfg('TELEGRAM_BOT_TOKEN');
-$client   = new Client(['timeout' => 15, 'http_errors' => false]);
+$action = (string) ($_POST['action'] ?? '');
 
-function telegram(Client $client, string $token, string $method, array $params = []): array
+/** data de una llamada de TelegramClient, o 422 con su error. */
+function telegram_result(array $r): mixed
 {
-    if (!preg_match('/^\d+:[\w-]{30,}$/', $token)) {
-        json_out(null, 422, 'Falta TELEGRAM_BOT_TOKEN en el .env o no tiene el formato esperado (123456:ABC…).');
+    if (!$r['ok']) {
+        json_out(null, 422, $r['error']);
     }
-    try {
-        $r = $client->post("https://api.telegram.org/bot{$token}/{$method}", ['json' => $params]);
-    } catch (GuzzleException $e) {
-        json_out(null, 502, 'No se pudo contactar con Telegram.');
-    }
-    $body = json_decode((string) $r->getBody(), true) ?: [];
-    if (empty($body['ok'])) {
-        $desc = $body['description'] ?? ('HTTP ' . $r->getStatusCode());
-        $msg  = match (true) {
-            $r->getStatusCode() === 401 => 'Telegram rechazó el token (401). Revísalo en @BotFather.',
-            $r->getStatusCode() === 409 => 'El bot tiene un webhook activo u otro proceso leyendo sus mensajes; no se puede usar getUpdates.',
-            default                     => 'Telegram: ' . $desc,
-        };
-        json_out(null, 422, $msg);
-    }
-    return $body['result'];
+    return $r['data'];
 }
 
 switch ($action) {
     case 'bot':
-        $me = telegram($client, $botToken, 'getMe');
-        json_out(['username' => $me['username'] ?? '', 'name' => $me['first_name'] ?? '']);
+        json_out(telegram_result(TelegramClient::me()) + ['mode' => TelegramClient::mode()]);
 
     case 'chats':
-        $updates = telegram($client, $botToken, 'getUpdates', ['limit' => 100, 'timeout' => 0]);
-        $chats   = [];
-        foreach ($updates as $u) {
-            foreach (['message', 'edited_message', 'channel_post', 'my_chat_member', 'chat_member'] as $k) {
-                $chat = $u[$k]['chat'] ?? null;
-                if ($chat === null && $k === 'message') {
-                    $chat = $u['callback_query']['message']['chat'] ?? null;
-                }
-                if (is_array($chat) && isset($chat['id'])) {
-                    $title = $chat['title']
-                        ?? trim(($chat['first_name'] ?? '') . ' ' . ($chat['last_name'] ?? ''))
-                        ?: ($chat['username'] ?? (string) $chat['id']);
-                    $chats[(string) $chat['id']] = [
-                        'id'       => (string) $chat['id'],
-                        'type'     => $chat['type'] ?? '',
-                        'title'    => $title,
-                        'username' => $chat['username'] ?? null,
-                    ];
-                }
-            }
-        }
-        json_out(array_values($chats));
+        json_out(telegram_result(TelegramClient::chats()));
 
     case 'test':
         $chatId = trim((string) ($_POST['chat_id'] ?? '')) ?: (string) cfg('TELEGRAM_CHAT_ID');
         if (!preg_match('/^-?\d+$|^@\w{5,}$/', $chatId)) {
             json_out(null, 422, 'Indica un ID de chat válido (número, o @canal).');
         }
-        telegram($client, $botToken, 'sendMessage', [
-            'chat_id'    => $chatId,
-            'text'       => "✅ <b>Mensaje de prueba</b>\nEl Notificador de Releases puede escribir en este chat.",
-            'parse_mode' => 'HTML',
-        ]);
+        telegram_result(TelegramClient::test($chatId));
         json_out(['sent' => true]);
 
     case 'github':
@@ -98,6 +57,7 @@ switch ($action) {
         if ($token === '') {
             json_out(null, 422, 'No hay GITHUB_TOKEN en el .env: el límite de GitHub es de 60 peticiones/hora y ghcr.io usará el registro anónimo.');
         }
+        $client  = new Client(['timeout' => 15, 'http_errors' => false]);
         $headers = ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/vnd.github+json', 'User-Agent' => 'telegram-notifier'];
         try {
             $rate = $client->get('https://api.github.com/rate_limit', ['headers' => $headers]);
