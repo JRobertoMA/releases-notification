@@ -226,6 +226,7 @@ $stat_cards = [
                     $latest   = $repo['last_seen_release'] ?? null;
                     $my_ver   = $repo['my_version'] ?? null;
                     $outdated = Repo::isOutdated($repo);
+                    $ignored  = Repo::isIgnored($repo);
                     $web_url  = Repo::webUrl($repo);
                     $params   = h(json_encode(['id' => $id]));
                     $verify_attrs = 'data-post-action="run_check.php" data-post-params="' . $params . '" data-loading-text="' . h("Verificando {$name}…") . '"';
@@ -287,6 +288,8 @@ $stat_cards = [
                         <?= status_badge($repo['check_status'] ?? null) ?>
                         <?php if ($outdated): ?>
                             <span class="badge text-bg-warning" title="Tu versión instalada no es la última detectada"><?= icon('exclamation-triangle', 'me-1') ?>Pendiente</span>
+                        <?php elseif ($ignored): ?>
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis" title="Ignoras la <?= h($latest) ?>: no cuenta como pendiente hasta que salga otra versión"><?= icon('bell-slash', 'me-1') ?>Ignorada</span>
                         <?php endif; ?>
                     </td>
                     <td class="c-checked meta"><?= time_tag($repo['last_checked'] ?? null, 'nunca') ?></td>
@@ -316,6 +319,12 @@ $stat_cards = [
                                     <li><button type="button" class="dropdown-item" <?= $verify_attrs ?>><?= icon('arrow-repeat', 'me-2') ?>Verificar ahora</button></li>
                                 <?php elseif ($latest): ?>
                                     <li><button type="button" class="dropdown-item" <?= $sync_attrs ?>><?= icon('check2-circle', 'me-2') ?>Marcar <?= h($latest) ?> como instalada</button></li>
+                                <?php endif; ?>
+                                <?php if ($outdated): ?>
+                                    <li><button type="button" class="dropdown-item" data-post-action="ignore_version.php" data-post-params="<?= $params ?>"
+                                                title="No contará como pendiente hasta que salga otra versión"><?= icon('bell-slash', 'me-2') ?>Ignorar <?= h($latest) ?></button></li>
+                                <?php elseif ($ignored): ?>
+                                    <li><button type="button" class="dropdown-item" data-post-action="ignore_version.php" data-post-params="<?= h(json_encode(['id' => $id, 'undo' => 1])) ?>"><?= icon('bell', 'me-2') ?>Dejar de ignorar <?= h($latest) ?></button></li>
                                 <?php endif; ?>
                                 <li><a class="dropdown-item" href="edit_repo.php?id=<?= h($id) ?>"><?= icon('pencil', 'me-2') ?>Editar</a></li>
                                 <li><a class="dropdown-item" href="history.php?repo=<?= urlencode($name) ?>"><?= icon('clock-history', 'me-2') ?>Historial</a></li>

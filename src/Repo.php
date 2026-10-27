@@ -53,11 +53,11 @@ final class Repo
 
     /**
      * Desactualizado si la versión instalada no es la última detectada, o si es el mismo tag (latest, stable…)
-     * pero el release es de un día posterior a la última actualización registrada.
+     * pero el release es de un día posterior a la última actualización registrada. Una versión ignorada no cuenta.
      */
     public static function isOutdated(array $repo): bool
     {
-        if (empty($repo['my_version']) || empty($repo['last_seen_release'])) {
+        if (empty($repo['my_version']) || empty($repo['last_seen_release']) || self::isIgnored($repo)) {
             return false;
         }
         if ($repo['my_version'] !== $repo['last_seen_release']) {
@@ -71,6 +71,22 @@ final class Repo
             return $released > $repo['my_updated_at'];
         }
         return false;
+    }
+
+    /**
+     * El usuario decidió no instalar la última versión detectada («Ignorar», v1.4.0). Deja de valer en cuanto sale
+     * otra: check_releases.php borra ignored_release al detectar un release nuevo (también por digest), y sincronizar
+     * también lo borra.
+     */
+    public static function isIgnored(array $repo): bool
+    {
+        return !empty($repo['ignored_release']) && $repo['ignored_release'] === ($repo['last_seen_release'] ?? null);
+    }
+
+    /** Lo que se escribe tras `docker pull`: las imágenes oficiales («_/php») van sin el «_/». */
+    public static function pullName(array $repo): string
+    {
+        return preg_replace('#^_/#', '', (string) ($repo['name'] ?? ''));
     }
 
     /** Orden de la tabla: lo que pide atención primero. */

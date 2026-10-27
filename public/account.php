@@ -12,6 +12,9 @@ declare(strict_types=1);
  * POST action=2fa_cancel   descarta el alta en curso
  * POST action=2fa_codes    code — genera códigos de recuperación nuevos (los anteriores dejan de valer)
  * POST action=2fa_disable  code — quita el 2FA (no permitido a administradores: es obligatorio)
+ * POST action=tg_code      genera un código REL-XXXXXXXX para vincular Telegram (10 min; anula el anterior)
+ * POST action=tg_cancel    anula el código pendiente
+ * POST action=tg_unlink    desvincula la cuenta de Telegram
  *
  * Las acciones sobre un 2FA ya activo piden un código actual (o de recuperación) y usan el límite de intentos del
  * login: una sesión robada no basta para quitar o sustituir el segundo factor.
@@ -22,7 +25,10 @@ require __DIR__ . '/../includes/bootstrap.php';
 
 use App\Access;
 use App\Crypto;
+use App\EventLog;
 use App\LoginThrottle;
+use App\TelegramClient;
+use App\TelegramLinks;
 use App\Totp;
 use App\Users;
 
@@ -114,6 +120,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 users()->disableTotp($me['id']);
                 redirect_with('Verificación en dos pasos desactivada.', 'warning', $back);
 
+            case 'tg_code':
+                if (TelegramClient::mode() !== 'bot') {
+                    throw new InvalidArgumentException('Para vincular Telegram hace falta el backend del bot (BOT_BACKEND_URL y BOT_PROJECT_KEY en el .env).');
+                }
+                if (Access::needsTwoFactorSetup($me)) {
+                    throw new InvalidArgumentException('Activa antes la verificación en dos pasos.');
+                }
+                $_SESSION['tg_code'] = TelegramLinks::createCode($me['id']);
+                redirect($back . '#telegram');
+
+            case 'tg_cancel':
+                TelegramLinks::discardCode($me['id']);
+                unset($_SESSION['tg_code']);
+                redirect($back . '#telegram');
+
+            case 'tg_unlink':
+                TelegramLinks::unlink($me['id']);
+                unset($_SESSION['tg_code']);
+                EventLog::log('info', "{$me['username']} desvinculó su cuenta de Telegram.");
+                redirect_with('Cuenta de Telegram desvinculada: los botones de los avisos ya no actuarán en tu nombre.', 'success', $back . '#telegram');
+
             default:
                 throw new InvalidArgumentException('Acción no válida.');
         }
@@ -137,6 +164,19 @@ $codes_left   = $has_totp ? users()->recoveryCodesLeft($me['id']) : 0;
 $crypto_ok    = Crypto::available();
 $must_enable  = Access::needsTwoFactorSetup($me);
 $setup_uri    = $setup !== null ? Totp::uri($setup['secret'], $me['username'], TOTP_ISSUER) : null;
+
+// Telegram: vínculo actual, o el código pendiente (se muestra mientras no caduque ni se haya usado)
+$tg_link = TelegramLinks::forUser($me['id']);
+$tg_code = $_SESSION['tg_code'] ?? null;
+if ($tg_link !== null || !is_array($tg_code) || (int) $tg_code['expires_at'] < time()) {
+    unset($_SESSION['tg_code']);
+    $tg_code = null;
+}
+$tg_bot = null;
+if ($tg_code !== null) {
+    $_SESSION['tg_bot'] ??= (TelegramClient::me()['data']['username'] ?? null);
+    $tg_bot = $_SESSION['tg_bot'];
+}
 
 $page_title = 'Mi cuenta';
 $active     = 'account';
@@ -274,6 +314,65 @@ require __DIR__ . '/../includes/header.php';
             </ul>
         </section>
 
+        <section class="card mb-3" id="telegram" aria-labelledby="sec-tg">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h2 class="h6 mb-0" id="sec-tg"><?= icon('telegram', 'me-1') ?>Telegram</h2>
+                <?php if ($tg_link !== null): ?>
+                    <span class="badge text-bg-success"><?= icon('link-45deg', 'me-1') ?>Vinculada</span>
+                <?php endif; ?>
+            </div>
+            <div class="card-body small">
+            <?php if ($tg_link !== null): ?>
+                <p class="mb-2">
+                    Vinculada con <strong><?= h(TelegramLinks::label($tg_link)) ?></strong>
+                    <?php if (!empty($tg_link['telegram_username']) && $tg_link['telegram_name'] !== ''): ?><span class="text-body-secondary">(<?= h($tg_link['telegram_name']) ?>)</span><?php endif; ?>
+                    · <?= time_tag($tg_link['linked_at']) ?>.
+                </p>
+                <p class="text-body-secondary">
+                    <?= can('repos.write')
+                        ? 'Los botones «Ya actualicé» e «Ignorar» de los avisos actúan en tu nombre, con tu rol.'
+                        : 'Tu rol es de solo lectura: los botones de los avisos no harán cambios.' ?>
+                </p>
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        data-bs-toggle="modal" data-bs-target="#confirmModal"
+                        data-action="account.php" data-params="<?= h(json_encode(['action' => 'tg_unlink'])) ?>"
+                        data-title="Desvincular Telegram"
+                        data-body="Los botones de los avisos dejarán de actuar en tu nombre. Podrás volver a vincularla cuando quieras."
+                        data-variant="danger" data-confirm-label="Desvincular"><?= icon('x-lg', 'me-1') ?>Desvincular</button>
+
+            <?php elseif (TelegramClient::mode() !== 'bot'): ?>
+                <p class="mb-0 text-body-secondary">Para vincular tu cuenta hace falta el backend del bot: <code>BOT_BACKEND_URL</code> y <code>BOT_PROJECT_KEY</code> en el <code>.env</code>.</p>
+
+            <?php elseif ($tg_code !== null): ?>
+                <p class="mb-2">Envía este mensaje al bot<?= $tg_bot ? ' <a href="https://t.me/' . h($tg_bot) . '" target="_blank" rel="noopener">@' . h($tg_bot) . '</a>' : '' ?> desde tu Telegram:</p>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control font-monospace" id="tg-command" value="/vincular <?= h($tg_code['code']) ?>" readonly aria-label="Mensaje para el bot">
+                    <button type="button" class="btn btn-outline-primary" id="btn-copy-tg"><?= icon('clipboard', 'me-1') ?>Copiar</button>
+                </div>
+                <p class="text-body-secondary mb-2">Vale una sola vez, hasta las <?= h(date('H:i', (int) $tg_code['expires_at'])) ?>. Cuando el bot te confirme, recarga esta página.</p>
+                <div class="d-flex gap-2">
+                    <a href="account.php#telegram" class="btn btn-sm btn-primary"><?= icon('arrow-clockwise', 'me-1') ?>Ya lo envié</a>
+                    <form method="post" action="account.php">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="tg_cancel">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Cancelar</button>
+                    </form>
+                </div>
+
+            <?php elseif ($must_enable): ?>
+                <p class="mb-0 text-body-secondary">Podrás vincular Telegram cuando actives la verificación en dos pasos.</p>
+
+            <?php else: ?>
+                <p>Vincula tu cuenta para usar los botones de los avisos («Ya actualicé», «Ignorar») desde Telegram, con los permisos de tu rol.</p>
+                <form method="post" action="account.php">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="tg_code">
+                    <button type="submit" class="btn btn-sm btn-primary"><?= icon('link-45deg', 'me-1') ?>Vincular Telegram</button>
+                </form>
+            <?php endif; ?>
+            </div>
+        </section>
+
         <form method="post" action="account.php" class="card" aria-labelledby="sec-pw">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="password">
@@ -314,6 +413,12 @@ require __DIR__ . '/../includes/header.php';
         box.textContent = 'No se pudo cargar el generador de QR: usa la clave de texto.';
         box.classList.add('small', 'text-dark');
     }
+    <?php endif; ?>
+
+    <?php if ($tg_code !== null): ?>
+    document.getElementById('btn-copy-tg').addEventListener('click', function () {
+        navigator.clipboard.writeText(document.getElementById('tg-command').value).then(function () { App.toast('Copiado. Pégalo en el chat del bot.', 'success'); });
+    });
     <?php endif; ?>
 
     <?php if ($recovery_once !== null): ?>

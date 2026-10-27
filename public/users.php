@@ -10,12 +10,15 @@ declare(strict_types=1);
  * POST action=password   id, password, password_confirm   (de otro usuario; cierra sus sesiones)
  * POST action=role       id, role
  * POST action=2fa_reset  id   (móvil perdido: entrará solo con la contraseña; si es admin, tendrá que reactivarlo)
+ * POST action=tg_unlink  id   (desvincula su cuenta de Telegram: los botones de los avisos dejan de actuar en su nombre)
  * POST action=delete     id
  */
 
 require __DIR__ . '/../includes/bootstrap.php';
 
 use App\Access;
+use App\EventLog;
+use App\TelegramLinks;
 use App\Users;
 
 require_permission('users');
@@ -69,6 +72,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 users()->disableTotp($target['id']);
                 redirect_with("Verificación en dos pasos de «{$target['username']}» restablecida.", 'success', $back);
 
+            case 'tg_unlink':
+                $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
+                TelegramLinks::unlink($target['id']);
+                EventLog::log('info', "{$me['username']} desvinculó la cuenta de Telegram de {$target['username']}.");
+                redirect_with("Telegram de «{$target['username']}» desvinculado.", 'success', $back);
+
             case 'delete':
                 $target = users()->find($id) ?? throw new InvalidArgumentException('El usuario ya no existe.');
                 if ($target['id'] === $me['id']) {
@@ -88,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $all = array_map([Users::class, 'publicData'], users()->all());
 usort($all, fn ($a, $b) => strcmp($a['username'], $b['username']));
 $admins = count(array_filter($all, fn ($u) => $u['role'] === 'admin'));
+$tg_links = TelegramLinks::all();
 
 $page_title = 'Usuarios';
 $active     = 'users';
@@ -106,6 +116,7 @@ require __DIR__ . '/../includes/header.php';
                             <th>Usuario</th>
                             <th>Rol</th>
                             <th>2FA</th>
+                            <th>Telegram</th>
                             <th class="d-none d-xl-table-cell">Alta</th>
                             <th>Último acceso</th>
                             <th class="text-end"><span class="visually-hidden">Acciones</span></th>
@@ -153,6 +164,28 @@ require __DIR__ . '/../includes/header.php';
                                     <span class="badge text-bg-warning" title="Obligatoria para administradores: se le pedirá al entrar">Pendiente</span>
                                 <?php else: ?>
                                     <span class="text-body-secondary" title="No activada"><?= icon('dash') ?><span class="visually-hidden">No activada</span></span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if (isset($tg_links[$u['id']])): $tg = $tg_links[$u['id']]; ?>
+                                    <div class="dropdown">
+                                        <button type="button" class="btn btn-sm p-0 border-0 link-primary" data-bs-toggle="dropdown" aria-expanded="false"
+                                                data-bs-popper-config='{"strategy":"fixed"}' title="Vinculada <?= h($tg['linked_at']) ?>">
+                                            <?= icon('telegram', 'me-1') ?><span class="small"><?= h(TelegramLinks::label($tg)) ?></span>
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li>
+                                                <button type="button" class="dropdown-item text-danger"
+                                                        data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                                        data-action="users.php" data-params="<?= h(json_encode(['action' => 'tg_unlink', 'id' => $u['id']])) ?>"
+                                                        data-title="Desvincular Telegram"
+                                                        data-body="Los botones de los avisos dejarán de actuar en nombre de «<?= h($u['username']) ?>». Podrá volver a vincularla desde su «Mi cuenta»."
+                                                        data-variant="danger" data-confirm-label="Desvincular"><?= icon('x-lg', 'me-2') ?>Desvincular</button>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="text-body-secondary" title="Sin vincular"><?= icon('dash') ?><span class="visually-hidden">Sin vincular</span></span>
                                 <?php endif; ?>
                             </td>
                             <td class="meta d-none d-xl-table-cell"><?= time_tag($u['created_at'], '—', true) ?></td>

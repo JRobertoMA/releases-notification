@@ -10,14 +10,15 @@ declare(strict_types=1);
  *          "from_id": 456, "chat_id": 123, "message_id": 789, …}
  * Respuesta: el sobre {data, error, status}; en data, qué debe hacer el bot (text, buttons, edit, toast…) o null.
  *
- * v1.3.0 (fase 1 de PROPUESTA_BOT_TELEGRAM.md): solo «ping» (cli/selftest.php del bot). La vinculación y los
- * botones llegan en la fase 2; mientras, se contesta que aún no están disponibles y no se cambia nada.
+ * Qué se hace con cada evento: App\BotEvents (vincular, botones del aviso; comandos y reacciones, en fases
+ * posteriores).
  */
 
 $public_page = true;
 $stateless   = true;
 require __DIR__ . '/../../includes/bootstrap.php';
 
+use App\BotEvents;
 use App\BotSignature;
 use App\Env;
 use App\TelegramClient;
@@ -44,10 +45,4 @@ if (!is_array($event) || !is_string($event['type'] ?? null)) {
     json_out(null, 422, 'Evento no válido');
 }
 
-json_out(match ($event['type']) {
-    'ping'     => ['pong' => true],
-    'link'     => ['text' => 'La vinculación con el Notificador de Releases llegará en una próxima versión.'],
-    'callback' => ['toast' => 'Esta acción aún no está disponible.'],
-    'command'  => ['text' => 'Este comando aún no está disponible.'],
-    default    => null,
-});
+json_out(BotEvents::handle($event));

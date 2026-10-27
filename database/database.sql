@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS repos (
     check_status      VARCHAR(16)   NULL,
     my_version        VARCHAR(255)  NULL,
     my_updated_at     DATE          NULL,
+    ignored_release   VARCHAR(255)  NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_repos_type_name (type, name),
     KEY idx_repos_position (position)
@@ -63,6 +64,28 @@ CREATE TABLE IF NOT EXISTS users (
     totp_last_step  BIGINT UNSIGNED                 NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Cuenta de Telegram vinculada (v1.4.0): una por usuario, y viceversa. Se vincula la persona (from.id), no el chat
+CREATE TABLE IF NOT EXISTS telegram_links (
+    user_id           CHAR(8)      NOT NULL,
+    telegram_user_id  BIGINT       NOT NULL,
+    telegram_name     VARCHAR(255) NOT NULL DEFAULT '',
+    telegram_username VARCHAR(64)  NULL,
+    linked_at         DATETIME     NOT NULL,
+    PRIMARY KEY (user_id),
+    UNIQUE KEY uq_tglinks_telegram (telegram_user_id),
+    CONSTRAINT fk_tglinks_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Códigos REL-XXXXXXXX para vincular: un solo uso, 10 min, solo el sha256; uno por usuario
+CREATE TABLE IF NOT EXISTS telegram_link_codes (
+    code_hash  CHAR(64)     NOT NULL,
+    user_id    CHAR(8)      NOT NULL,
+    expires_at INT UNSIGNED NOT NULL,
+    PRIMARY KEY (code_hash),
+    UNIQUE KEY uq_tgcodes_user (user_id),
+    CONSTRAINT fk_tgcodes_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Códigos de recuperación del 2FA: un solo uso, solo el sha256 (se muestran una vez al generarlos)

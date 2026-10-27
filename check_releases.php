@@ -37,6 +37,7 @@ use App\EventLog;
 use App\Jobs;
 use App\Files;
 use App\OciRegistry;
+use App\ReleaseNotice;
 use App\RepoStore;
 use App\RunHealth;
 use App\TelegramClient;
@@ -103,9 +104,11 @@ function record_release($repo_name, $type, $tag, $url = null) {
 
 // --- API Functions ---
 
-// A través del backend del bot (o directo con el token, de respaldo): App\TelegramClient
-function send_telegram_message($message, $chat_id, $repo_id) {
-    $r = TelegramClient::send($chat_id, $message, $repo_id);
+// A través del backend del bot (o directo con el token, de respaldo): App\TelegramClient. El teclado (App\ReleaseNotice)
+// solo va con el bot: sin él nadie recibe los callbacks.
+function send_release_notice(array $repo, array $outcome, $chat_id) {
+    $buttons = TelegramClient::mode() === 'bot' ? ReleaseNotice::buttons($repo, $outcome['tag'], $outcome['url'] ?? null) : null;
+    $r = TelegramClient::send($chat_id, ReleaseNotice::text($repo, $outcome, $buttons !== null), $repo['id'], $buttons);
     if (!$r['ok']) {
         log_entry('warning', 'No se pudo enviar el aviso por Telegram: ' . $r['error']);
     }
@@ -158,41 +161,6 @@ function get_latest_gitlab_release(Client $client, $repo_name) {
         error_log("GitLab API Error for {$repo_name}: " . $e->getMessage());
         return null;
     }
-}
-
-function build_release_message(array $repo, array $outcome) {
-    $repo_name  = $repo['name'];
-    $repo_type  = $repo['type'] ?? 'github';
-    $tag        = $outcome['tag'];
-    $type_emoji = ['github' => '🐙', 'gitlab' => '🦊', 'docker' => '🐋', 'oci' => '📦'];
-    $emoji      = $type_emoji[$repo_type] ?? '📦';
-    $date_ts    = !empty($outcome['date']) ? strtotime($outcome['date']) : false;
-    $date_str   = $date_ts !== false ? "\n📅 " . date('Y-m-d', $date_ts) : '';  // en APP_TIMEZONE, como Repo::isOutdated()
-
-    $message = sprintf(
-        "🔔 <b>Nuevo Release Detectado</b>\n──────────────────────\n%s <b>%s</b>\n📦 <b>%s</b>%s",
-        $emoji,
-        htmlspecialchars($repo_name),
-        htmlspecialchars($tag),
-        $date_str
-    );
-    if (!$outcome['tag_changed']) {
-        $message .= "\n<i>Misma etiqueta, contenido actualizado</i>";
-    }
-    if (($repo_type === 'github' || $repo_type === 'gitlab') && !empty($outcome['url'])) {
-        $message .= sprintf("\n\n<a href=\"%s\">→ Ver Release</a>", $outcome['url']);
-    }
-    if ($repo_type === 'oci' && ($package_url = OciRegistry::webUrl($repo_name))) {
-        $message .= sprintf("\n\n<a href=\"%s\">→ Ver paquete</a>", htmlspecialchars($package_url));
-    }
-    if ($repo_type === 'docker' || $repo_type === 'oci') {
-        $message .= sprintf(
-            "\n\n<code>docker pull %s:%s</code>",
-            htmlspecialchars($repo_name),
-            htmlspecialchars($tag)
-        );
-    }
-    return $message;
 }
 
 // --- Targets ---
@@ -307,6 +275,7 @@ foreach ($targets as $snapshot) {
         if ($tag_changed || $digest_changed) {
             $repo['check_status']      = 'new';
             $repo['last_seen_release'] = $tag;
+            unset($repo['ignored_release']);   // «Ignorar» vale solo para la versión que se ignoró
             $repo['last_release_date'] = $date;
             if ($digest !== null) {
                 $repo['last_seen_digest'] = $digest;
@@ -354,7 +323,7 @@ foreach ($targets as $snapshot) {
             log_entry('success', "Nuevo release para {$repo_name}: "
                 . ($outcome['tag_changed'] ? $outcome['tag'] : "{$outcome['tag']} (digest actualizado)"));
             record_release($repo_name, $repo_type, $outcome['tag'], $outcome['url']);
-            send_telegram_message(build_release_message($outcome['repo'], $outcome), $telegram_chat_id, $outcome['repo']['id']);
+            send_release_notice($outcome['repo'], $outcome, $telegram_chat_id);
             break;
         default:
             log_entry('info', "Sin cambios en {$repo_name} ({$outcome['tag']})");

@@ -19,7 +19,7 @@ final class RepoStore
     /** Columnas de datos (además de id y position). */
     private const COLUMNS = [
         'name', 'type', 'tags', 'tag_pattern', 'last_seen_release', 'last_seen_digest', 'last_release_date',
-        'last_checked', 'check_status', 'my_version', 'my_updated_at',
+        'last_checked', 'check_status', 'my_version', 'my_updated_at', 'ignored_release',
     ];
 
     /** @return list<array> */
@@ -134,7 +134,7 @@ final class RepoStore
     {
         $repo = ['id' => $row['id']];
         foreach (self::COLUMNS as $col) {
-            if ($row[$col] === null) {
+            if (($row[$col] ?? null) === null) {
                 continue;
             }
             $repo[$col] = $col === 'tags' ? Database::decodeJson($row[$col], []) : $row[$col];

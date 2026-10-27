@@ -45,14 +45,17 @@ final class TelegramClient
         return $name !== '' ? $name : self::DEFAULT_PROJECT;
     }
 
-    /** Aviso en HTML. $ref (id del repo) queda en el bot para las reacciones y ediciones posteriores. */
-    public static function send(string $chat, string $html, ?string $ref = null): array
+    /**
+     * Aviso en HTML. $ref (id del repo) queda en el bot para las reacciones y ediciones posteriores.
+     * $buttons: filas de {text, data|url|copy} (App\ReleaseNotice); solo en modo bot, en directo se ignoran.
+     */
+    public static function send(string $chat, string $html, ?string $ref = null, ?array $buttons = null): array
     {
         if (self::mode() === 'bot') {
             if (($id = self::numericChat($chat)) === null) {
                 return self::fail('Con el backend del bot, el chat tiene que ser un ID numérico.');
             }
-            return self::bot('POST', 'api/send.php', array_filter(['chat' => $id, 'text' => $html, 'parse_mode' => 'HTML', 'ref' => $ref]));
+            return self::bot('POST', 'api/send.php', array_filter(['chat' => $id, 'text' => $html, 'parse_mode' => 'HTML', 'ref' => $ref, 'buttons' => $buttons]));
         }
         return self::direct('sendMessage', ['chat_id' => $chat, 'text' => $html, 'parse_mode' => 'HTML']);
     }

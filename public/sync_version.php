@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 /**
  * Marca como instalada la última versión detectada (my_version = last_seen_release, my_updated_at = hoy).
- * Acepta un id (botón de la fila) o ids[] (acción masiva).
+ * Acepta un id (botón de la fila) o ids[] (acción masiva). Lo mismo que «✅ Ya actualicé» en Telegram (App\RepoActions).
  */
 
 require __DIR__ . '/../includes/bootstrap.php';
+
+use App\RepoActions;
 
 require_permission('repos.write');
 require_post_csrf();
@@ -17,24 +19,7 @@ if ($ids === []) {
     redirect_with('No se indicó qué repositorio sincronizar.', 'danger');
 }
 
-$result = repo_store()->update(function (array &$repos) use ($ids) {
-    $synced  = [];
-    $skipped = [];
-    foreach ($repos as &$repo) {
-        if (!in_array($repo['id'], $ids, true)) {
-            continue;
-        }
-        if (empty($repo['last_seen_release'])) {
-            $skipped[] = $repo['name'];
-            continue;
-        }
-        $repo['my_version']    = $repo['last_seen_release'];
-        $repo['my_updated_at'] = date('Y-m-d');
-        $synced[] = $repo['name'] . ' → ' . $repo['last_seen_release'];
-    }
-    unset($repo);
-    return ['synced' => $synced, 'skipped' => $skipped];
-});
+$result = RepoActions::sync(repo_store(), $ids);
 
 if ($result['synced'] === []) {
     redirect_with('No había una versión detectada que sincronizar.', 'warning');
