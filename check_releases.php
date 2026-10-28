@@ -84,11 +84,11 @@ foreach ($argv ?? [] as $arg) {
 $store = new RepoStore();
 $jobs  = new Jobs();
 
-if (TelegramClient::mode() === null || empty($telegram_chat_id)) {
+if (!TelegramClient::configured() || empty($telegram_chat_id)) {
     if ($job_id !== null) {
         $jobs->update($job_id, ['status' => 'failed', 'message' => 'Falta configurar el bot de Telegram.', 'finished_at' => date('c')]);
     }
-    die("Error: faltan BOT_BACKEND_URL y BOT_PROJECT_KEY (o TELEGRAM_BOT_TOKEN) en .env, o el chat de Telegram en Configuración\n");
+    die("Error: faltan BOT_BACKEND_URL y BOT_PROJECT_KEY en .env, o el chat de Telegram en Configuración\n");
 }
 
 // --- Logging & History ---
@@ -104,11 +104,10 @@ function record_release($repo_name, $type, $tag, $url = null) {
 
 // --- API Functions ---
 
-// A través del backend del bot (o directo con el token, de respaldo): App\TelegramClient. El teclado (App\ReleaseNotice)
-// solo va con el bot: sin él nadie recibe los callbacks.
+// A través del backend del bot (App\TelegramClient), con el teclado de App\ReleaseNotice
 function send_release_notice(array $repo, array $outcome, $chat_id) {
-    $buttons = TelegramClient::mode() === 'bot' ? ReleaseNotice::buttons($repo, $outcome['tag'], $outcome['url'] ?? null) : null;
-    $r = TelegramClient::send($chat_id, ReleaseNotice::text($repo, $outcome, $buttons !== null), $repo['id'], $buttons);
+    $buttons = ReleaseNotice::buttons($repo, $outcome['tag'], $outcome['url'] ?? null);
+    $r = TelegramClient::send($chat_id, ReleaseNotice::text($repo, $outcome), $repo['id'], $buttons);
     if (!$r['ok']) {
         log_entry('warning', 'No se pudo enviar el aviso por Telegram: ' . $r['error']);
     }

@@ -3,7 +3,14 @@
 Versiones publicadas (tags `vX.Y.Z`). En PROD se despliega siempre un tag, nunca `main`
 (ver «Publicar una versión» en el README).
 
-## 1.4.0 — 2026-10-26
+## 1.5.0 — 2026-10-27
+
+- Se quito el envio directo con TELEGRAM_BOT_TOKEN
+- Deteccion de chat por mensajes recientes
+- Aviso sin botones
+- Soporte de @canal
+
+## 1.4.0 — 1.4.1 2026-10-26
 
 ### Botones en los avisos de Telegram
 - Con el backend del bot, cada aviso trae botones:

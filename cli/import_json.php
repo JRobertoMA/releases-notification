@@ -166,12 +166,12 @@ Database::transaction(function () use ($data, $force, &$counts) {
     }
 });
 
-// Secretos y entorno de config.json → .env (solo los que falten allí; nunca se imprimen los valores)
+// Secretos y entorno de config.json → .env (solo los que falten allí; nunca se imprimen los valores).
+// TELEGRAM_BOT_TOKEN no se copia: desde v1.5.0 el token vive solo en el backend del bot (BOT_* en el .env).
 $added = [];
 if (isset($data['config'])) {
     $c = $data['config'];
     $added = Env::appendMissing(array_map('strval', array_filter([
-        'TELEGRAM_BOT_TOKEN' => $c['TELEGRAM_BOT_TOKEN'] ?? null,
         'GITHUB_TOKEN'       => $c['GITHUB_TOKEN'] ?? null,
         'PHP_CLI'            => $c['PHP_CLI'] ?? null,
         'APP_TIMEZONE'       => $c['APP_TIMEZONE'] ?? null,

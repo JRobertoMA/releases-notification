@@ -47,7 +47,8 @@ editando el fichero por SSH.
 | `.env` | Para qué |
 |---|---|
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` | MariaDB |
-| `TELEGRAM_BOT_TOKEN` | token del bot (@BotFather) |
+| `BOT_BACKEND_URL`, `BOT_PROJECT_KEY` | el backend compartido del bot (`telegram-bot`), por el que van los avisos desde v1.3.0, y la clave que dio su `cli/project.php add releases` |
+| `BOT_PROJECT` | opcional; nombre del proyecto en el bot si no es `releases` |
 | `GITHUB_TOKEN` | opcional; con `read:packages`, también ghcr.io |
 | `PHP_CLI` | PHP de consola para «Verificar» y el cron (vacío = autodetectar) |
 | `APP_TIMEZONE` | zona horaria de las fechas (por defecto `America/Mexico_City`) |
@@ -58,11 +59,26 @@ editando el fichero por SSH.
 Lo ajustable desde la web se guarda en la base de datos (**Configuración**, solo admin): el chat de Telegram
 («Detectar chat»), el intervalo del cron, los registros OCI adicionales y el tema por defecto.
 
+## Telegram: avisos con botones
+
+Cada aviso lleva botones:
+- **✅ Ya actualicé:** lo mismo que «Sincronizar» en la web.
+- **🔕 Ignorar:** esa versión deja de contar como pendiente hasta que salga otra. En la web está en el menú `⋯`
+  de la fila, que también permite deshacerlo.
+- **↗ Ver** y, en Docker y OCI, **📋** para copiar el `docker pull`.
+
+Para que los botones actúen, cada usuario vincula su cuenta de Telegram en **Mi cuenta → Telegram**:
+1. Pulsa «Vincular Telegram». Sale un código `REL-XXXXXXXX`, de un solo uso, que vale 10 minutos.
+2. Envíaselo al bot: `/vincular REL-XXXXXXXX`.
+
+Cada acción usa el rol que el usuario tenga en ese momento: un Lector no puede cambiar nada. Un administrador puede
+desvincular a cualquiera desde Usuarios.
+
 ## Instalación local (Docker)
 
 ```bash
 cd htdocs && git clone https://github.com/JRobertoMA/releases-notification.git
-cd releases-notification && cp .env.example .env && chmod 600 .env   # rellena DB_* (DB_HOST=mariadb) y los tokens
+cd releases-notification && cp .env.example .env && chmod 600 .env   # DB_* (DB_HOST=mariadb), BOT_*, GITHUB_TOKEN
 docker exec -u www-data -w /var/www/html/releases-notification php-apache composer install
 docker exec -u www-data php-apache php /var/www/html/releases-notification/cli/migrate.php
 docker exec -it -u www-data php-apache php /var/www/html/releases-notification/cli/user.php create <usuario>
@@ -70,6 +86,11 @@ docker exec -it -u www-data php-apache php /var/www/html/releases-notification/c
 
 Después abre `http://localhost:81/releases-notification/`, inicia sesión, ve a **Configuración**, pulsa **Detectar
 chat**, elige el chat, pulsa **Enviar prueba** y guarda.
+
+**El bot en local.** El backend del bot local es `BOT_BACKEND_URL=http://localhost/telegram-bot`. Así se ve desde
+dentro del contenedor, que es desde donde llama PHP. Ese backend tiene que usar un bot de **pruebas**, nunca el de
+producción (ver el `README.md` de `telegram-bot`). Sin claves `BOT_*` el notificador no envía avisos: la portada
+lo avisa. Desde v1.5.0 no tiene el token del bot; solo lo tiene el backend.
 
 ## Instalación en web Hosting
 
@@ -82,7 +103,7 @@ chat**, elige el chat, pulsa **Enviar prueba** y guarda.
    ```bash
    cd ~ && git clone https://github.com/JRobertoMA/releases-notification.git notificador
    cd ~/notificador && git checkout vX.Y.Z
-   cp .env.example .env && chmod 600 .env && nano .env      # DB_*, TELEGRAM_BOT_TOKEN, GITHUB_TOKEN, PHP_CLI=/usr/bin/php8.5-cli
+   cp .env.example .env && chmod 600 .env && nano .env      # DB_*, BOT_BACKEND_URL, BOT_PROJECT_KEY, GITHUB_TOKEN, PHP_CLI=/usr/bin/php8.5-cli
    /usr/bin/php8.5-cli ~/composer/composer.phar install --no-dev --optimize-autoloader
    /usr/bin/php8.5-cli cli/migrate.php
    /usr/bin/php8.5-cli cli/user.php create <usuario>

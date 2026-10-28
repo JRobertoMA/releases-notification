@@ -121,7 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect_with('Verificación en dos pasos desactivada.', 'warning', $back);
 
             case 'tg_code':
-                if (TelegramClient::mode() !== 'bot') {
+                if (!TelegramClient::configured()) {
                     throw new InvalidArgumentException('Para vincular Telegram hace falta el backend del bot (BOT_BACKEND_URL y BOT_PROJECT_KEY en el .env).');
                 }
                 if (Access::needsTwoFactorSetup($me)) {
@@ -340,7 +340,7 @@ require __DIR__ . '/../includes/header.php';
                         data-body="Los botones de los avisos dejarán de actuar en tu nombre. Podrás volver a vincularla cuando quieras."
                         data-variant="danger" data-confirm-label="Desvincular"><?= icon('x-lg', 'me-1') ?>Desvincular</button>
 
-            <?php elseif (TelegramClient::mode() !== 'bot'): ?>
+            <?php elseif (!TelegramClient::configured()): ?>
                 <p class="mb-0 text-body-secondary">Para vincular tu cuenta hace falta el backend del bot: <code>BOT_BACKEND_URL</code> y <code>BOT_PROJECT_KEY</code> en el <code>.env</code>.</p>
 
             <?php elseif ($tg_code !== null): ?>

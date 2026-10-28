@@ -33,7 +33,7 @@ $interval = max(1, (int) cfg('CHECK_INTERVAL_HOURS'));
 
 // Sin bot (.env) o sin chat (Configuración) no se puede avisar: se dice en la portada
 $missing_telegram = array_filter([
-    TelegramClient::mode() === null ? 'faltan <code>BOT_BACKEND_URL</code> y <code>BOT_PROJECT_KEY</code> en el <code>.env</code>' : null,
+    !TelegramClient::configured() ? 'faltan <code>BOT_BACKEND_URL</code> y <code>BOT_PROJECT_KEY</code> en el <code>.env</code>' : null,
     (string) cfg('TELEGRAM_CHAT_ID') === '' ? 'falta elegir el chat en Configuración' : null,
 ]);
 $last_run = RunHealth::lastFullRun();

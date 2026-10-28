@@ -5,14 +5,13 @@ declare(strict_types=1);
 /**
  * POST api/settings_check.php — asistente de settings.php (PROPUESTA_UX §2.7).
  *
- *   action=bot     getMe: comprueba la conexión con Telegram y devuelve el @usuario del bot
+ *   action=bot     comprueba la conexión con el backend del bot y devuelve el @usuario del bot
  *   action=chats   chats que han escrito al bot o donde lo añadieron
  *   action=test    mensaje de prueba al chat indicado
  *   action=github  límite restante del token y si puede leer ghcr.io (read:packages)
  *
- * Telegram va por App\TelegramClient: a través del backend del bot (BOT_BACKEND_URL + BOT_PROJECT_KEY), o directo
- * con TELEGRAM_BOT_TOKEN como respaldo. Con el backend, «chats» lee su registro: su webhook impide getUpdates (409).
- * Los tokens y la clave salen SOLO del .env (la web no puede leerlos ni cambiarlos; lo que llegue en la petición se
+ * Telegram va por App\TelegramClient, a través del backend del bot (BOT_BACKEND_URL + BOT_PROJECT_KEY): «chats» lee
+ * el registro de chats del bot. Los tokens y la clave salen SOLO del .env (la web no puede leerlos ni cambiarlos; lo que llegue en la petición se
  * ignora). El chat de prueba sí puede venir del formulario (aún sin guardar); si no, el guardado en Configuración.
  * action=php comprueba el PHP_CLI del .env (o el autodetectado si está vacío).
  */
@@ -39,15 +38,15 @@ function telegram_result(array $r): mixed
 
 switch ($action) {
     case 'bot':
-        json_out(telegram_result(TelegramClient::me()) + ['mode' => TelegramClient::mode()]);
+        json_out(telegram_result(TelegramClient::me()));
 
     case 'chats':
         json_out(telegram_result(TelegramClient::chats()));
 
     case 'test':
         $chatId = trim((string) ($_POST['chat_id'] ?? '')) ?: (string) cfg('TELEGRAM_CHAT_ID');
-        if (!preg_match('/^-?\d+$|^@\w{5,}$/', $chatId)) {
-            json_out(null, 422, 'Indica un ID de chat válido (número, o @canal).');
+        if (!preg_match('/^-?\d+$/', $chatId)) {
+            json_out(null, 422, 'Indica un ID de chat numérico (usa «Detectar chat»).');
         }
         telegram_result(TelegramClient::test($chatId));
         json_out(['sent' => true]);

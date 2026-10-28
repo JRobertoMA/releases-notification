@@ -11,8 +11,8 @@ namespace App;
  *   [✅ Ya actualicé] [🔕 Ignorar] [↗ Ver]
  *   [📋 docker pull lscr.io/linuxserver/jellyfin:10.11.2]
  *
- * Los botones solo van con el backend del bot (TelegramClient en modo «bot»): sin él nadie recibe los callbacks.
- * Entonces el enlace y el `docker pull` se quedan en el texto, como hasta v1.3.0.
+ * El enlace y el `docker pull` van en los botones, no en el texto (desde v1.5.0 siempre hay botones: todo va por el
+ * backend del bot, que es quien recibe los callbacks).
  * callback_data: «rel:<acción>:<id>» (≤ 64 bytes; el id son 6 hex). Lo atiende App\BotEvents.
  */
 final class ReleaseNotice
@@ -22,7 +22,7 @@ final class ReleaseNotice
     /**
      * @param array $outcome ['tag', 'tag_changed', 'date', 'url'] del resultado de check_releases.php
      */
-    public static function text(array $repo, array $outcome, bool $withButtons): string
+    public static function text(array $repo, array $outcome): string
     {
         $type    = $repo['type'] ?? 'github';
         $date_ts = !empty($outcome['date']) ? strtotime($outcome['date']) : false;
@@ -38,18 +38,6 @@ final class ReleaseNotice
         );
         if (!$outcome['tag_changed']) {
             $message .= "\n<i>Misma etiqueta, contenido actualizado</i>";
-        }
-        if ($withButtons) {
-            return $message;
-        }
-        if (($type === 'github' || $type === 'gitlab') && !empty($outcome['url'])) {
-            $message .= sprintf("\n\n<a href=\"%s\">→ Ver Release</a>", htmlspecialchars($outcome['url']));
-        }
-        if ($type === 'oci' && ($package_url = OciRegistry::webUrl($repo['name']))) {
-            $message .= sprintf("\n\n<a href=\"%s\">→ Ver paquete</a>", htmlspecialchars($package_url));
-        }
-        if (in_array($type, ['docker', 'oci'], true)) {
-            $message .= "\n\n<code>docker pull " . htmlspecialchars(Repo::pullName($repo) . ':' . $outcome['tag']) . '</code>';
         }
         return $message;
     }
